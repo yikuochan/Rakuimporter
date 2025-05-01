@@ -38,6 +38,15 @@ Specify both input and output files:
 python3 csv_to_json_converter.py -i my_export.csv -o my_output.json
 ```
 
+Use the provided sample file:
+```bash
+python3 csv_to_json_converter.py -i sample_raku_export.csv -o sample_output.json
+```
+
+## Sample Data
+
+A sample CSV file (`sample_raku_export.csv`) is included in this repository for testing purposes. It contains a few journal entries in the expected format.
+
 ## Output Format
 
 The JSON output is an array of journal entries, where each entry contains:
