@@ -1,0 +1,5 @@
+伝票No.,仕訳日,申請日,仕訳データ生成日,摘要,Note(明細),Receipt/Invoice #(明細),勘定奉行：伝票区切,G/L Account,借方：勘定科目：会計連携項目,借方：補助科目：会計連携項目,換算前額,単位,借方：負担部門：会計連携項目,申請者CD/支払先CD,支払先CD,フリー２(明細),借方：負担部門コード
+VPA-0000065,2025/03/10,2025/03/10,2025/03/20,VPA-0000065   飲食費(社内会議等)・10% Lunch Meeting with HR and RD Managers,,,,G/L Account,,73300-14,785,台湾ドル,VCT.1692G,10017,,Lunch Meeting with HR and RD Managers,VCT.1692
+VPA-0000065,2025/03/10,2025/03/10,2025/03/20,VPA-0000065   飲食費(社内会議等)・10% Lunch Meeting with HR and RD Managers,,,,Vendor,32200-10,32200-10,785,台湾ドル,VCT.1692G,10017,,,
+VPA-0000066,2025/03/15,2025/03/15,2025/03/20,VPA-0000066   交通費 Taxi to client meeting,,,,G/L Account,,73100-10,450,台湾ドル,VCT.1692G,10017,,Taxi to client meeting,VCT.1692
+VPA-0000066,2025/03/15,2025/03/15,2025/03/20,VPA-0000066   交通費 Taxi to client meeting,,,,Vendor,32200-10,32200-10,450,台湾ドル,VCT.1692G,10017,,,
