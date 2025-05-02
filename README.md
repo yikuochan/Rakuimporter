@@ -1,8 +1,18 @@
-# General Journal CSV to JSON Converter
+# Power Importer - CSV Processing Tools
 
-This Python script converts a General Journal CSV file from Raku export format to a structured JSON format.
+This repository contains tools for processing CSV files from various sources, including files with Japanese character encodings.
 
-## Features
+## Tools Overview
+
+1. **csv_to_json_converter.py** - Converts General Journal CSV files to structured JSON format
+2. **charset_converter.py** - Converts files from non-UTF-8 encodings (like Shift-JIS) to UTF-8
+3. **process_japan_exports.py** - Batch processes files from the Japan team (conversion + JSON processing)
+
+## CSV to JSON Converter
+
+The `csv_to_json_converter.py` script converts General Journal CSV files to a structured JSON format.
+
+### Features
 
 - Handles multi-line headers in the CSV file
 - Processes debit and credit pairs in the journal entries
@@ -10,46 +20,98 @@ This Python script converts a General Journal CSV file from Raku export format t
 - Converts numeric values where appropriate
 - Preserves Japanese characters with proper UTF-8 encoding
 
-## Usage
+**Note:** This script expects input files to be in UTF-8 encoding. For files with other encodings, use the charset_converter.py script first.
+
+### Usage
 
 ```bash
-python3 csv_to_json_converter.py [-i INPUT_FILE] [-o OUTPUT_FILE]
+python csv_to_json_converter.py [-i INPUT_FILE] [-o OUTPUT_FILE]
 ```
 
-### Command-line Arguments
+#### Command-line Arguments
 
 - `-i, --input`: Input CSV file path (default: "Raku export.csv")
 - `-o, --output`: Output JSON file path (default: "journal_entries.json")
 
-### Examples
+#### Examples
 
 Use default file names:
 ```bash
-python3 csv_to_json_converter.py
+python csv_to_json_converter.py
 ```
 
 Specify input file:
 ```bash
-python3 csv_to_json_converter.py -i my_export.csv
+python csv_to_json_converter.py -i my_export.csv
 ```
 
 Specify both input and output files:
 ```bash
-python3 csv_to_json_converter.py -i my_export.csv -o my_output.json
+python csv_to_json_converter.py -i my_export.csv -o my_output.json
 ```
 
-Use the provided sample file:
+## Charset Converter
+
+The `charset_converter.py` script converts files from non-UTF-8 encodings (like Shift-JIS or other Japanese encodings) to UTF-8 format.
+
+### Features
+
+- Automatic encoding detection using the `chardet` library
+- Fallback to common Japanese encodings if detection confidence is low
+- Handles various Japanese encodings (Shift-JIS, EUC-JP, ISO-2022-JP, CP932)
+- Creates a new file with UTF-8 encoding, preserving the original file
+
+### Requirements
+
+- Python 3.x
+- `chardet` library (install with `pip install chardet` in a virtual environment)
+
+### Usage
+
 ```bash
-python3 csv_to_json_converter.py -i sample_raku_export.csv -o sample_output.json
+python charset_converter.py input_file [output_file]
 ```
 
-## Sample Data
+#### Arguments
 
-A sample CSV file (`sample_raku_export.csv`) is included in this repository for testing purposes. It contains a few journal entries in the expected format.
+- `input_file`: Path to the file you want to convert
+- `output_file` (optional): Path where the converted file will be saved. If not specified, the script will create a file with the same name as the input file but with "_utf8" appended before the extension.
+
+#### Examples
+
+Convert a file and let the script name the output file:
+```bash
+python charset_converter.py "Evelyn Raku export.csv"
+```
+This will create a file named "Evelyn Raku export_utf8.csv"
+
+## Batch Processing Script
+
+The `process_japan_exports.py` script automates the workflow of:
+1. Converting files from non-UTF-8 charset to UTF-8
+2. Processing the converted files with csv_to_json_converter.py
+
+### Usage
+
+```bash
+python process_japan_exports.py file1.csv [file2.csv ...]
+```
+
+#### Examples
+
+Process a single file:
+```bash
+python process_japan_exports.py "Evelyn Raku export.csv"
+```
+
+Process multiple files:
+```bash
+python process_japan_exports.py "Evelyn Raku export.csv" "Raku export.csv"
+```
 
 ## Output Format
 
-The JSON output is an array of journal entries, where each entry contains:
+The JSON output from the csv_to_json_converter.py script is an array of journal entries, where each entry contains:
 
 - Common fields (voucher number, dates, description, etc.)
 - Debit information (account, amount, department, etc.)
@@ -97,14 +159,27 @@ Example:
 ]
 ```
 
+## Workflow for Processing Japan Team Files
+
+1. **For a single file:**
+   ```bash
+   # Convert encoding
+   python charset_converter.py "Japan_export.csv"
+   
+   # Process the converted file
+   python csv_to_json_converter.py -i "Japan_export_utf8.csv" -o "japan_data.json"
+   ```
+
+2. **For batch processing:**
+   ```bash
+   # Process multiple files at once
+   python process_japan_exports.py "Japan_export1.csv" "Japan_export2.csv"
+   ```
+
 ## Error Handling
 
-The script includes error handling for common issues:
+All scripts include error handling for common issues:
 
-- If the input file doesn't exist, it will display an appropriate error message
-- Other exceptions during processing are also caught and reported
-
-## Requirements
-
-- Python 3.x
-- Standard libraries: csv, json, io
+- If input files don't exist, they will display appropriate error messages
+- The charset_converter.py script will try multiple encodings if the initial detection fails
+- The process_japan_exports.py script provides a summary of successful and failed file processing
