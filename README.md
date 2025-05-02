@@ -18,6 +18,7 @@ The `csv_to_json_converter.py` script converts General Journal CSV files to a st
 - Processes debit and credit pairs in the journal entries
 - Extracts and organizes relevant accounting fields
 - Converts numeric values where appropriate
+- Normalizes currency values ("台湾ドル" -> "NTD", "円" -> "JPY")
 - Preserves Japanese characters with proper UTF-8 encoding
 
 **Note:** This script expects input files to be in UTF-8 encoding. For files with other encodings, use the charset_converter.py script first.
@@ -134,7 +135,7 @@ Example:
       "account": "",
       "sub_account": "73300-14",
       "amount": 785.0,
-      "currency": "台湾ドル",
+      "currency": "NTD",
       "department": "VCT.1692G",
       "applicant_code": "10017",
       "vendor_code": "",
@@ -147,7 +148,7 @@ Example:
       "account": "32200-10",
       "sub_account": "32200-10",
       "amount": 785.0,
-      "currency": "台湾ドル",
+      "currency": "NTD",
       "department": "VCT.1692G",
       "applicant_code": "10017",
       "vendor_code": "",
