@@ -1,0 +1,107 @@
+[
+  {
+    "voucher_no": "VPA-0000087",
+    "transaction_date": "2025/03/26",
+    "application_date": "2025/03/25",
+    "journal_generation_date": "2025/04/22",
+    "description": "VPA-0000087   Telephone, Mobile Phone Call March mobile fee",
+    "note": "",
+    "receipt_invoice": "",
+    "debit": {
+      "marker": "*",
+      "gl_account": "G/L Account",
+      "account": "72700-10",
+      "sub_account": "",
+      "amount": 599.0,
+      "currency": "台湾ドル",
+      "department": "VCT.1342G",
+      "applicant_code": "10055",
+      "vendor_code": "",
+      "free_field": "March mobile fee",
+      "department_code": "VCT.1342G"
+    },
+    "credit": {
+      "marker": "",
+      "gl_account": "Vendor",
+      "account": "32200-10",
+      "sub_account": "32200-10",
+      "amount": 599.0,
+      "currency": "台湾ドル",
+      "department": "VCT.1342G",
+      "applicant_code": "10055",
+      "vendor_code": "",
+      "free_field": "March mobile fee",
+      "department_code": "VCT.1342G"
+    }
+  },
+  {
+    "voucher_no": "VPA-0000068",
+    "transaction_date": "2025/03/05",
+    "application_date": "2025/03/27",
+    "journal_generation_date": "2025/04/22",
+    "description": "VPA-0000068   Telephone, Mobile Phone Call 2月?電信帳單",
+    "note": "",
+    "receipt_invoice": "",
+    "debit": {
+      "marker": "",
+      "gl_account": "G/L Account",
+      "account": "72700-10",
+      "sub_account": "",
+      "amount": 1099.0,
+      "currency": "台湾ドル",
+      "department": "VCT.1342G",
+      "applicant_code": "10087",
+      "vendor_code": "",
+      "free_field": "2月?電信帳單",
+      "department_code": "VCT.1342G"
+    },
+    "credit": {
+      "marker": "",
+      "gl_account": "Vendor",
+      "account": "32200-10",
+      "sub_account": "32200-10",
+      "amount": 1099.0,
+      "currency": "台湾ドル",
+      "department": "VCT.1342G",
+      "applicant_code": "10087",
+      "vendor_code": "",
+      "free_field": "2月?電信帳單",
+      "department_code": "VCT.1342G"
+    }
+  },
+  {
+    "voucher_no": "VPA-0000077",
+    "transaction_date": "2025/01/09",
+    "application_date": "2025/03/14",
+    "journal_generation_date": "2025/04/22",
+    "description": "VPA-0000077   Staff Entertainment (Allowance with Staff) Entertainment Expense: 結婚禮金",
+    "note": "",
+    "receipt_invoice": "",
+    "debit": {
+      "marker": "",
+      "gl_account": "G/L Account",
+      "account": "",
+      "sub_account": "",
+      "amount": 6000.0,
+      "currency": "台湾ドル",
+      "department": "VCT.1692G",
+      "applicant_code": "10095",
+      "vendor_code": "V12345",
+      "free_field": "Entertainment Expense: 結婚禮金",
+      "department_code": "VCT.1695G"
+    },
+    "credit": {
+      "marker": "",
+      "gl_account": "Vendor",
+      "account": "32200-10",
+      "sub_account": "32200-10",
+      "amount": 6000.0,
+      "currency": "台湾ドル",
+      "department": "VCT.1692G",
+      "applicant_code": "10095",
+      "vendor_code": "V12345",
+      "free_field": "Entertainment Expense: 結婚禮金",
+      "department_code": "VCT.1695G"
+    }
+  }
+]
