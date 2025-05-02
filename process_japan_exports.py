@@ -1,118 +1,250 @@
 #!/usr/bin/env python3
 """
-process_japan_exports.py - Convert and process files from Japan team
+VicOne ERP API Integration Script
 
-This script automates the workflow of:
-1. Converting files from unknown-8bit charset to UTF-8
-2. Processing the converted files with csv_to_json_converter.py
+This script processes JSON files containing journal entries and posts them to the VicOne ERP API.
+For each entry in the input file, it generates two journal lines (debit and credit) and posts them
+to the ERP API endpoint.
 
 Usage:
-    python process_japan_exports.py file1.csv [file2.csv ...]
+    python process_japan_exports.py <input_json_file>
+
+Example:
+    python process_japan_exports.py jp-test-Evelyn\ Raku\ export_journal_data.json
 """
 
+import argparse
+import json
+import logging
 import os
 import sys
-import subprocess
-import argparse
-from pathlib import Path
+import time
+from typing import Dict, List, Any, Optional, Tuple
 
-def process_file(file_path):
+import requests
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler("erp_api_integration.log"),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger("erp_api_integration")
+
+# API Configuration
+TOKEN_URL = "https://login.microsoftonline.com/6b83c27c-aa6d-475a-9933-5c34bb008d73/oauth2/v2.0/token"
+API_URL = "https://api.businesscentral.dynamics.com/v2.0/6b83c27c-aa6d-475a-9933-5c34bb008d73/Staging/ODataV4/Company('VCT')/PurchaseJournals"
+CLIENT_ID = "5d0ad744"
+CLIENT_SECRET = "w.58Q"
+SCOPE = "https://api.businesscentral.dynamics.com/.default"
+
+# Fixed values for journal entries
+JOURNAL_TEMPLATE_NAME = "PURCHASES"
+JOURNAL_BATCH_NAME = "PURCHASE"
+DOCUMENT_TYPE = "Invoice"
+
+
+def get_access_token() -> str:
     """
-    Process a single file by:
-    1. Converting it to UTF-8
-    2. Processing the converted file with csv_to_json_converter.py
+    Get OAuth2 access token using client credentials flow.
+    
+    Returns:
+        str: Access token
+    
+    Raises:
+        Exception: If token acquisition fails
+    """
+    logger.info("Getting access token...")
+    
+    data = {
+        "grant_type": "client_credentials",
+        "client_id": CLIENT_ID,
+        "client_secret": CLIENT_SECRET,
+        "scope": SCOPE
+    }
+    
+    try:
+        response = requests.post(TOKEN_URL, data=data)
+        response.raise_for_status()
+        token_data = response.json()
+        logger.info("Access token acquired successfully")
+        return token_data["access_token"]
+    except Exception as e:
+        logger.error(f"Failed to get access token: {str(e)}")
+        raise
+
+
+def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any]:
+    """
+    Create a journal line payload for the API from an entry.
     
     Args:
-        file_path (str): Path to the file to process
-        
+        entry: The journal entry data
+        entry_type: Either 'debit' or 'credit'
+    
     Returns:
-        bool: True if processing was successful, False otherwise
+        Dict[str, Any]: The journal line payload
     """
-    file_path = Path(file_path)
+    # Get the entry data based on type
+    entry_data = entry[entry_type]
     
-    # Check if file exists
-    if not file_path.exists():
-        print(f"Error: File '{file_path}' does not exist.")
-        return False
+    # Determine amount (positive for debit, negative for credit)
+    amount = entry_data["amount"] if entry_type == "debit" else -entry_data["amount"]
     
-    # Step 1: Convert to UTF-8
-    utf8_file_path = file_path.with_name(f"{file_path.stem}_utf8{file_path.suffix}")
-    json_file_path = file_path.with_name(f"{file_path.stem}_journal_data.json")
+    # Determine ShortcutDimCode4 (vendor_code if present, otherwise applicant_code)
+    shortcut_dim_code4 = entry_data.get("vendor_code", "") or entry_data.get("applicant_code", "")
     
-    print(f"Converting {file_path} to UTF-8...")
-    try:
-        # Activate the virtual environment if it exists
-        venv_activate = ""
-        if os.path.exists("charset_converter_env"):
-            if os.name == 'nt':  # Windows
-                venv_activate = "charset_converter_env\\Scripts\\activate && "
-            else:  # Unix/Linux/Mac
-                venv_activate = "source charset_converter_env/bin/activate && "
-        
-        # Run charset_converter.py
-        cmd = f"{venv_activate}python charset_converter.py \"{file_path}\""
-        result = subprocess.run(cmd, shell=True, check=True, text=True, capture_output=True)
-        print(result.stdout)
-        
-        if not utf8_file_path.exists():
-            print(f"Error: Failed to create UTF-8 file '{utf8_file_path}'.")
-            if result.stderr:
-                print(f"Error details: {result.stderr}")
-            return False
-            
-    except subprocess.CalledProcessError as e:
-        print(f"Error converting file: {e}")
-        if e.stderr:
-            print(f"Error details: {e.stderr}")
-        return False
+    # Create the journal line payload
+    journal_line = {
+        "Journal_Template_Name": JOURNAL_TEMPLATE_NAME,
+        "Journal_Batch_Name": JOURNAL_BATCH_NAME,
+        "Document_Type": DOCUMENT_TYPE,
+        "External_Document_No": entry.get("voucher_no", ""),
+        "Account_Type": entry_data.get("gl_account", ""),
+        "Account_No": entry_data.get("account", ""),
+        "Description": entry.get("description", ""),
+        "Currency_Code": entry_data.get("currency", ""),
+        "Amount": amount,
+        "Shortcut_Dimension_1_Code": entry_data.get("department", "")[:3] if entry_data.get("department") else "",
+        "Shortcut_Dimension_2_Code": entry_data.get("department", ""),
+        "ShortcutDimCode3": "",
+        "ShortcutDimCode4": shortcut_dim_code4,
+        "ShortcutDimCode5": "",
+        "ShortcutDimCode6": "",
+        "ShortcutDimCode7": "",
+        "ShortcutDimCode8": "",
+        "ShortcutDimCode9": "",
+        "ShortcutDimCode10": "",
+        "ShortcutDimCode11": "",
+        "ShortcutDimCode12": "",
+        "ShortcutDimCode13": "",
+        "ShortcutDimCode14": "",
+        "ShortcutDimCode15": ""
+    }
     
-    # Step 2: Process with csv_to_json_converter.py
-    print(f"Processing {utf8_file_path} to JSON...")
-    try:
-        cmd = f"python csv_to_json_converter.py -i \"{utf8_file_path}\" -o \"{json_file_path}\""
-        result = subprocess.run(cmd, shell=True, check=True, text=True, capture_output=True)
-        print(result.stdout)
-        
-        if not json_file_path.exists():
-            print(f"Error: Failed to create JSON file '{json_file_path}'.")
-            if result.stderr:
-                print(f"Error details: {result.stderr}")
-            return False
-            
-    except subprocess.CalledProcessError as e:
-        print(f"Error processing file: {e}")
-        if e.stderr:
-            print(f"Error details: {e.stderr}")
-        return False
-    
-    print(f"Successfully processed {file_path} to {json_file_path}")
-    return True
+    return journal_line
 
-def main():
-    parser = argparse.ArgumentParser(description='Convert and process files from Japan team')
-    parser.add_argument('files', nargs='+', help='CSV files to process')
+
+def post_journal_line(journal_line: Dict[str, Any], access_token: str) -> Tuple[bool, Dict[str, Any]]:
+    """
+    Post a journal line to the ERP API.
     
-    args = parser.parse_args()
+    Args:
+        journal_line: The journal line payload
+        access_token: OAuth2 access token
     
+    Returns:
+        Tuple[bool, Dict[str, Any]]: Success status and response data
+    """
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json"
+    }
+    
+    try:
+        response = requests.post(API_URL, json=journal_line, headers=headers)
+        response.raise_for_status()
+        return True, response.json()
+    except requests.exceptions.HTTPError as e:
+        logger.error(f"HTTP error: {str(e)}")
+        try:
+            error_data = response.json()
+            logger.error(f"API error response: {json.dumps(error_data, indent=2)}")
+            return False, error_data
+        except:
+            return False, {"error": str(e)}
+    except Exception as e:
+        logger.error(f"Error posting journal line: {str(e)}")
+        return False, {"error": str(e)}
+
+
+def process_entries(entries: List[Dict[str, Any]], access_token: str) -> Tuple[int, int]:
+    """
+    Process all entries and post them to the ERP API.
+    
+    Args:
+        entries: List of journal entries
+        access_token: OAuth2 access token
+    
+    Returns:
+        Tuple[int, int]: Count of successful and failed entries
+    """
     success_count = 0
     failure_count = 0
     
-    for file_path in args.files:
-        print(f"\nProcessing file: {file_path}")
-        print("-" * 50)
+    for i, entry in enumerate(entries):
+        logger.info(f"Processing entry {i+1}/{len(entries)} - Voucher: {entry.get('voucher_no', 'Unknown')}")
         
-        if process_file(file_path):
+        # Process debit line
+        debit_line = create_journal_line(entry, "debit")
+        logger.info(f"Posting debit line for voucher {entry.get('voucher_no', 'Unknown')}")
+        debit_success, debit_response = post_journal_line(debit_line, access_token)
+        
+        if debit_success:
+            logger.info(f"Successfully posted debit line for voucher {entry.get('voucher_no', 'Unknown')}")
             success_count += 1
         else:
+            logger.error(f"Failed to post debit line for voucher {entry.get('voucher_no', 'Unknown')}")
             failure_count += 1
         
-        print("-" * 50)
+        # Small delay between requests to avoid rate limiting
+        time.sleep(0.5)
+        
+        # Process credit line
+        credit_line = create_journal_line(entry, "credit")
+        logger.info(f"Posting credit line for voucher {entry.get('voucher_no', 'Unknown')}")
+        credit_success, credit_response = post_journal_line(credit_line, access_token)
+        
+        if credit_success:
+            logger.info(f"Successfully posted credit line for voucher {entry.get('voucher_no', 'Unknown')}")
+            success_count += 1
+        else:
+            logger.error(f"Failed to post credit line for voucher {entry.get('voucher_no', 'Unknown')}")
+            failure_count += 1
+        
+        # Small delay between entries
+        time.sleep(0.5)
     
-    print(f"\nSummary: {success_count} files processed successfully, {failure_count} files failed.")
+    return success_count, failure_count
+
+
+def main():
+    """Main function to process the input file and post to the ERP API."""
+    parser = argparse.ArgumentParser(description='Process JSON file and post to ERP API')
+    parser.add_argument('input_file', help='Input JSON file path')
+    args = parser.parse_args()
     
-    if failure_count > 0:
-        return 1
-    return 0
+    # Check if input file exists
+    if not os.path.exists(args.input_file):
+        logger.error(f"Input file not found: {args.input_file}")
+        sys.exit(1)
+    
+    # Load input file
+    try:
+        with open(args.input_file, 'r', encoding='utf-8') as f:
+            entries = json.load(f)
+        logger.info(f"Loaded {len(entries)} entries from {args.input_file}")
+    except Exception as e:
+        logger.error(f"Error loading input file: {str(e)}")
+        sys.exit(1)
+    
+    # Get access token
+    try:
+        access_token = get_access_token()
+    except Exception as e:
+        logger.error(f"Failed to get access token: {str(e)}")
+        sys.exit(1)
+    
+    # Process entries
+    success_count, failure_count = process_entries(entries, access_token)
+    
+    # Log summary
+    total_lines = len(entries) * 2  # Each entry has debit and credit lines
+    logger.info(f"Processing complete. Success: {success_count}/{total_lines}, Failure: {failure_count}/{total_lines}")
+
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()
