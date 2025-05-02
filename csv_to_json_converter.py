@@ -4,6 +4,23 @@ import io
 import argparse
 import sys
 
+def normalize_currency(currency):
+    """
+    Normalize currency values according to requirements.
+    
+    Args:
+        currency (str): The currency value to normalize
+        
+    Returns:
+        str: The normalized currency value
+    """
+    if currency == "台湾ドル":
+        return "NTD"
+    elif currency == "円":
+        return "JPY"
+    else:
+        return currency
+
 def convert_csv_to_json(csv_file_path, json_file_path):
     """
     Convert a General Journal CSV file to JSON format.
@@ -65,7 +82,7 @@ def convert_csv_to_json(csv_file_path, json_file_path):
                 "account": debit_data.get("借方：勘定科目：会計連携項目") or "",
                 "sub_account": debit_data.get("借方：補助科目：会計連携項目") or "",
                 "amount": debit_data.get("換算前額") or "",
-                "currency": debit_data.get("単位") or "",
+                "currency": normalize_currency(debit_data.get("単位") or ""),
                 "department": debit_data.get("借方：負担部門：会計連携項目") or "",
                 "applicant_code": debit_data.get("申請者CD/支払先CD") or "",
                 "vendor_code": debit_data.get("支払先CD") or "",
@@ -78,7 +95,7 @@ def convert_csv_to_json(csv_file_path, json_file_path):
                 "account": credit_data.get("貸方：勘定科目：会計連携項目") or "",
                 "sub_account": credit_data.get("貸方：補助科目：会計連携項目") or "",
                 "amount": credit_data.get("換算前額") or "",
-                "currency": credit_data.get("単位") or "",
+                "currency": normalize_currency(credit_data.get("単位") or ""),
                 "department": credit_data.get("借方：負担部門：会計連携項目") or "",
                 "applicant_code": credit_data.get("申請者CD/支払先CD") or "",
                 "vendor_code": credit_data.get("支払先CD") or "",
