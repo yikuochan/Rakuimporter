@@ -1,186 +1,137 @@
-# Power Importer - CSV Processing Tools
+# VicOne ERP API Integration
 
-This repository contains tools for processing CSV files from various sources, including files with Japanese character encodings.
+This project provides a Python script for integrating with the VicOne ERP API. The script processes JSON files containing journal entries and posts them to the ERP API.
 
-## Tools Overview
+## Features
 
-1. **csv_to_json_converter.py** - Converts General Journal CSV files to structured JSON format
-2. **charset_converter.py** - Converts files from non-UTF-8 encodings (like Shift-JIS) to UTF-8
-3. **process_japan_exports.py** - Batch processes files from the Japan team (conversion + JSON processing)
+- **JSON Parsing**: Reads journal entries from a JSON file
+- **Field Mapping**: Maps fields according to specified rules
+- **API Integration**: Authenticates and posts journal lines to the ERP API
+- **Error Handling**: Comprehensive error handling and logging
 
-## CSV to JSON Converter
+## Requirements
 
-The `csv_to_json_converter.py` script converts General Journal CSV files to a structured JSON format.
+- Python 3.6+
+- `requests` library
 
-### Features
+## Installation
 
-- Handles multi-line headers in the CSV file
-- Processes debit and credit pairs in the journal entries
-- Extracts and organizes relevant accounting fields
-- Converts numeric values where appropriate
-- Normalizes currency values ("台湾ドル" -> "NTD", "円" -> "JPY")
-- Preserves Japanese characters with proper UTF-8 encoding
+1. Clone this repository:
+   ```bash
+   git clone https://github.com/yikuochan/Rakuimporter.git
+   cd Rakuimporter
+   ```
 
-**Note:** This script expects input files to be in UTF-8 encoding. For files with other encodings, use the charset_converter.py script first.
+2. Install the required dependencies:
+   ```bash
+   pip install requests
+   ```
 
-### Usage
+## Usage
 
-```bash
-python csv_to_json_converter.py [-i INPUT_FILE] [-o OUTPUT_FILE]
-```
-
-#### Command-line Arguments
-
-- `-i, --input`: Input CSV file path (default: "Raku export.csv")
-- `-o, --output`: Output JSON file path (default: "journal_entries.json")
-
-#### Examples
-
-Use default file names:
-```bash
-python csv_to_json_converter.py
-```
-
-Specify input file:
-```bash
-python csv_to_json_converter.py -i my_export.csv
-```
-
-Specify both input and output files:
-```bash
-python csv_to_json_converter.py -i my_export.csv -o my_output.json
-```
-
-## Charset Converter
-
-The `charset_converter.py` script converts files from non-UTF-8 encodings (like Shift-JIS or other Japanese encodings) to UTF-8 format.
-
-### Features
-
-- Automatic encoding detection using the `chardet` library
-- Fallback to common Japanese encodings if detection confidence is low
-- Handles various Japanese encodings (Shift-JIS, EUC-JP, ISO-2022-JP, CP932)
-- Creates a new file with UTF-8 encoding, preserving the original file
-
-### Requirements
-
-- Python 3.x
-- `chardet` library (install with `pip install chardet` in a virtual environment)
-
-### Usage
+Run the script with the input JSON file:
 
 ```bash
-python charset_converter.py input_file [output_file]
+python process_japan_exports.py <input_json_file>
 ```
-
-#### Arguments
-
-- `input_file`: Path to the file you want to convert
-- `output_file` (optional): Path where the converted file will be saved. If not specified, the script will create a file with the same name as the input file but with "_utf8" appended before the extension.
-
-#### Examples
-
-Convert a file and let the script name the output file:
-```bash
-python charset_converter.py "Evelyn Raku export.csv"
-```
-This will create a file named "Evelyn Raku export_utf8.csv"
-
-## Batch Processing Script
-
-The `process_japan_exports.py` script automates the workflow of:
-1. Converting files from non-UTF-8 charset to UTF-8
-2. Processing the converted files with csv_to_json_converter.py
-
-### Usage
-
-```bash
-python process_japan_exports.py file1.csv [file2.csv ...]
-```
-
-#### Examples
-
-Process a single file:
-```bash
-python process_japan_exports.py "Evelyn Raku export.csv"
-```
-
-Process multiple files:
-```bash
-python process_japan_exports.py "Evelyn Raku export.csv" "Raku export.csv"
-```
-
-## Output Format
-
-The JSON output from the csv_to_json_converter.py script is an array of journal entries, where each entry contains:
-
-- Common fields (voucher number, dates, description, etc.)
-- Debit information (account, amount, department, etc.)
-- Credit information (account, amount, department, etc.)
 
 Example:
-```json
-[
-  {
-    "voucher_no": "VPA-0000065",
-    "transaction_date": "2025/03/10",
-    "application_date": "2025/03/10",
-    "journal_generation_date": "2025/03/20",
-    "description": "VPA-0000065   飲食費(社内会議等)・10% Lunch Meeting with HR and RD Managers",
-    "note": "",
-    "receipt_invoice": "",
-    "debit": {
-      "marker": "",
-      "gl_account": "G/L Account",
-      "account": "",
-      "sub_account": "73300-14",
-      "amount": 785.0,
-      "currency": "NTD",
-      "department": "VCT.1692G",
-      "applicant_code": "10017",
-      "vendor_code": "",
-      "free_field": "Lunch Meeting with HR and RD Managers",
-      "department_code": "VCT.1692"
-    },
-    "credit": {
-      "marker": "",
-      "gl_account": "Vendor",
-      "account": "32200-10",
-      "sub_account": "32200-10",
-      "amount": 785.0,
-      "currency": "NTD",
-      "department": "VCT.1692G",
-      "applicant_code": "10017",
-      "vendor_code": "",
-      "free_field": "",
-      "department_code": ""
-    }
-  },
-  // More journal entries...
-]
+```bash
+python process_japan_exports.py jp-test-Evelyn\ Raku\ export_journal_data.json
 ```
 
-## Workflow for Processing Japan Team Files
+## Input Format
 
-1. **For a single file:**
-   ```bash
-   # Convert encoding
-   python charset_converter.py "Japan_export.csv"
-   
-   # Process the converted file
-   python csv_to_json_converter.py -i "Japan_export_utf8.csv" -o "japan_data.json"
-   ```
+The input JSON file should contain an array of journal entries, each with the following structure:
 
-2. **For batch processing:**
-   ```bash
-   # Process multiple files at once
-   python process_japan_exports.py "Japan_export1.csv" "Japan_export2.csv"
-   ```
+```json
+{
+  "voucher_no": "VPA-0000087",
+  "transaction_date": "1114/03/26",
+  "application_date": "2025/03/25",
+  "journal_generation_date": "2025/04/22",
+  "description": "VPA-0000087   Telephone, Mobile Phone Call March mobile fee",
+  "note": "",
+  "receipt_invoice": "",
+  "debit": {
+    "marker": "*",
+    "gl_account": "G/L Account",
+    "account": "72700-10",
+    "sub_account": "",
+    "amount": 599.0,
+    "currency": "台湾ドル",
+    "department": "VCT.1342G",
+    "applicant_code": "10055",
+    "vendor_code": "",
+    "free_field": "March mobile fee",
+    "department_code": "VCT.1342G"
+  },
+  "credit": {
+    "marker": "",
+    "gl_account": "Vendor",
+    "account": "32200-10",
+    "sub_account": "32200-10",
+    "amount": 599.0,
+    "currency": "台湾ドル",
+    "department": "VCT.1342G",
+    "applicant_code": "10055",
+    "vendor_code": "",
+    "free_field": "March mobile fee",
+    "department_code": "VCT.1342G"
+  }
+}
+```
+
+## Field Mapping
+
+For each entry in the input JSON, the script generates two journal lines (debit and credit) with the following mapping:
+
+- `Journal_Template_Name`: `"PURCHASES"` (fixed)
+- `Journal_Batch_Name`: `"PURCHASE"` (fixed)
+- `Document_Type`: `"Invoice"` (fixed)
+- `External_Document_No`: from top-level `voucher_no`
+- `Account_Type`: from `debit.gl_account` or `credit.gl_account`
+- `Account_No`: from `debit.account` or `credit.account`
+- `Description`: from top-level `description`
+- `Currency_Code`: from `debit.currency` or `credit.currency`
+- `Amount`: 
+  - Debit line: `debit.amount` (positive)
+  - Credit line: `-credit.amount` (negative)
+- `Shortcut_Dimension_1_Code`: first 3 characters of `debit.department` or `credit.department`
+- `Shortcut_Dimension_2_Code`: from `debit.department` or `credit.department`
+- `ShortcutDimCode4`: 
+  - If `vendor_code` is provided and not empty, use `vendor_code`
+  - Otherwise, use `applicant_code`
+- All other shortcut dimension codes: empty string
+
+## API Configuration
+
+The script uses the following API configuration:
+
+- **Token URL**: `https://login.microsoftonline.com/6b83c27c-aa6d-475a-9933-5c34bb008d73/oauth2/v2.0/token`
+- **API URL**: `https://api.businesscentral.dynamics.com/v2.0/6b83c27c-aa6d-475a-9933-5c34bb008d73/Staging/ODataV4/Company('VCT')/PurchaseJournals`
+- **Client ID**: `5d0ad744`
+- **Scope**: `https://api.businesscentral.dynamics.com/.default`
+
+## Logging
+
+The script logs information to both the console and a file (`erp_api_integration.log`). The log includes:
+
+- Entry processing status
+- API request and response details
+- Error information
+- Summary of successful and failed operations
 
 ## Error Handling
 
-All scripts include error handling for common issues:
+The script includes robust error handling:
 
-- If input files don't exist, they will display appropriate error messages
-- The charset_converter.py script will try multiple encodings if the initial detection fails
-- The process_japan_exports.py script provides a summary of successful and failed file processing
+- Validates input file existence
+- Handles JSON parsing errors
+- Manages API authentication failures
+- Captures and logs API response errors
+- Provides detailed logging for troubleshooting
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
