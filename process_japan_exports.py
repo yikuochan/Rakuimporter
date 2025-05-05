@@ -137,6 +137,14 @@ def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any
     else:
         shortcut_dim_2_code = entry_data.get("department", "")
     
+    # Determine Account_No based on account type
+    # For Vendor accounts, use a valid vendor ID (e.g., "V001")
+    # For other accounts, use the account field as before
+    if entry_data.get("gl_account", "") == "Vendor":
+        account_no = "V001"  # Replace with a valid vendor ID from your ERP system
+    else:
+        account_no = entry_data.get("account", "")
+    
     # Create the journal line payload
     journal_line = {
         "Journal_Template_Name": JOURNAL_TEMPLATE_NAME,
@@ -144,7 +152,7 @@ def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any
         "Document_Type": DOCUMENT_TYPE,
         "External_Document_No": entry.get("voucher_no", ""),
         "Account_Type": entry_data.get("gl_account", ""),
-        "Account_No": entry_data.get("account", ""),
+        "Account_No": account_no,
         "Description": entry.get("description", ""),
         "Currency_Code": entry_data.get("currency", ""),
         "Amount": amount,
