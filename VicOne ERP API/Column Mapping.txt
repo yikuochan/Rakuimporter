@@ -1,0 +1,26 @@
+{
+    "Journal_Template_Name": "PURCHASES", //fix
+    "Journal_Batch_Name": "PURCHASE", //fix
+    "Document_Type": "Invoice", //fix
+    "External_Document_No": {{voucher_no}},
+    "Account_Type": {{gl_account}},
+    "Account_No": {{account}},
+    "Description": {{description}},
+    "Currency_Code": {{currency}},
+    "Amount": {{amount}},
+    "Shortcut_Dimension_1_Code": substring({{department}},1,3), //RC
+    "Shortcut_Dimension_2_Code": {{department}}, //Department
+    "ShortcutDimCode3": "",
+    "ShortcutDimCode4": {{applicant_code}}, //Employee
+    "ShortcutDimCode5": "",
+    "ShortcutDimCode6": "",
+    "ShortcutDimCode7": "",
+    "ShortcutDimCode8": "",
+    "ShortcutDimCode9": "",
+    "ShortcutDimCode10": "",
+    "ShortcutDimCode11": "",
+    "ShortcutDimCode12": "",
+    "ShortcutDimCode13": "",
+    "ShortcutDimCode14": "", //Project
+    "ShortcutDimCode15": ""
+}
