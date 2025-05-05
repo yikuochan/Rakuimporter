@@ -137,13 +137,9 @@ def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any
     else:
         shortcut_dim_2_code = entry_data.get("department", "")
     
-    # Determine Account_No based on account type
-    # For Vendor accounts, use the sub_account field which might contain the vendor ID
-    # For other accounts, use the account field as before
-    if entry_data.get("gl_account", "") == "Vendor":
-        account_no = entry_data.get("sub_account", "")
-    else:
-        account_no = entry_data.get("account", "")
+    # Determine Account_No based on the account field as specified in Column Mapping.txt
+    # This ensures alignment with the JSON file structure
+    account_no = entry_data.get("account", "")
     
     # Create the journal line payload
     journal_line = {
