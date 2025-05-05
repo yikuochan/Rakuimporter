@@ -129,6 +129,9 @@ def convert_csv_to_json(csv_file_path, json_file_path):
             # First try to use 借方：負担部門：会計連携項目, if empty use 申請者CD/支払先CD
             entry["debit"]["account"] = debit_data.get("借方：負担部門：会計連携項目") or debit_data.get("申請者CD/支払先CD") or ""
             
+            # Update vendor_code according to new requirement: use 支払先CD, if empty use 申請者CD/支払先CD
+            entry["debit"]["vendor_code"] = debit_data.get("支払先CD") or debit_data.get("申請者CD/支払先CD") or ""
+            
             # Transform department_code for Vendor gl_account type
             if entry["debit"]["department_code"]:
                 # Take first 3 characters and append .9999
@@ -139,6 +142,9 @@ def convert_csv_to_json(csv_file_path, json_file_path):
         if entry["credit"]["gl_account"] == "Vendor":
             # First try to use 借方：負担部門：会計連携項目, if empty use 申請者CD/支払先CD
             entry["credit"]["account"] = credit_data.get("借方：負担部門：会計連携項目") or credit_data.get("申請者CD/支払先CD") or ""
+            
+            # Update vendor_code according to new requirement: use 支払先CD, if empty use 申請者CD/支払先CD
+            entry["credit"]["vendor_code"] = credit_data.get("支払先CD") or credit_data.get("申請者CD/支払先CD") or ""
             
             # Transform department_code for Vendor gl_account type
             if entry["credit"]["department_code"]:
