@@ -23,6 +23,19 @@ from typing import Dict, List, Any, Optional, Tuple
 
 import requests
 
+# Import environment configuration utility
+try:
+    from env_config import get_env_var
+except ImportError:
+    # Fallback if env_config.py is not available
+    def get_env_var(name, default=None, required=False, as_type=str):
+        value = os.environ.get(name)
+        if value is None:
+            if required:
+                raise ValueError(f"Required environment variable '{name}' is not set")
+            return default
+        return value
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -34,12 +47,21 @@ logging.basicConfig(
 )
 logger = logging.getLogger("erp_api_integration")
 
-# API Configuration
-TOKEN_URL = "https://login.microsoftonline.com/6b83c27c-aa6d-475a-9933-5c34bb008d73/oauth2/v2.0/token"
-API_URL = "https://api.businesscentral.dynamics.com/v2.0/6b83c27c-aa6d-475a-9933-5c34bb008d73/Staging/ODataV4/Company('VCT')/PurchaseJournals"
-CLIENT_ID = "5d0ad744"
-CLIENT_SECRET = "w.58Q"
-SCOPE = "https://api.businesscentral.dynamics.com/.default"
+# API Configuration from environment variables
+TOKEN_URL = get_env_var(
+    "ERP_TOKEN_URL", 
+    default="https://login.microsoftonline.com/6b83c27c-aa6d-475a-9933-5c34bb008d73/oauth2/v2.0/token"
+)
+API_URL = get_env_var(
+    "ERP_API_URL", 
+    default="https://api.businesscentral.dynamics.com/v2.0/6b83c27c-aa6d-475a-9933-5c34bb008d73/Staging/ODataV4/Company('VCT')/PurchaseJournals"
+)
+CLIENT_ID = get_env_var("ERP_CLIENT_ID", required=True)
+CLIENT_SECRET = get_env_var("ERP_CLIENT_SECRET", required=True)
+SCOPE = get_env_var(
+    "ERP_SCOPE", 
+    default="https://api.businesscentral.dynamics.com/.default"
+)
 
 # Fixed values for journal entries
 JOURNAL_TEMPLATE_NAME = "PURCHASES"
@@ -67,9 +89,19 @@ def get_access_token() -> str:
     }
     
     try:
+        # Log the token request data
+        logger.info(f"Token request body: {data}")
         response = requests.post(TOKEN_URL, data=data)
+        # Log response status and headers
+        logger.info(f"Token response status code: {response.status_code}")
+        logger.info(f"Token response headers: {json.dumps(dict(response.headers), indent=2)}")
         response.raise_for_status()
         token_data = response.json()
+        # Log token response (excluding the actual token for security)
+        safe_token_data = token_data.copy()
+        if "access_token" in safe_token_data:
+            safe_token_data["access_token"] = "[REDACTED]"
+        logger.info(f"Token response: {json.dumps(safe_token_data, indent=2)}")
         logger.info("Access token acquired successfully")
         return token_data["access_token"]
     except Exception as e:
@@ -153,9 +185,22 @@ def post_journal_line(journal_line: Dict[str, Any], access_token: str) -> Tuple[
     }
     
     try:
+        # Log the request body for debugging
+        logger.info(f"Request body for journal line: {json.dumps(journal_line, indent=2)}")
+        # Log headers (excluding Authorization header for security)
+        safe_headers = headers.copy()
+        if "Authorization" in safe_headers:
+            safe_headers["Authorization"] = "Bearer [REDACTED]"
+        logger.info(f"Request headers: {json.dumps(safe_headers, indent=2)}")
         response = requests.post(API_URL, json=journal_line, headers=headers)
+        # Log response status and headers
+        logger.info(f"Response status code: {response.status_code}")
+        logger.info(f"Response headers: {json.dumps(dict(response.headers), indent=2)}")
         response.raise_for_status()
-        return True, response.json()
+        response_data = response.json()
+        # Log the response data
+        logger.info(f"API response body: {json.dumps(response_data, indent=2)}")
+        return True, response_data
     except requests.exceptions.HTTPError as e:
         logger.error(f"HTTP error: {str(e)}")
         try:
