@@ -43,3 +43,6 @@ erp_api_integration.log
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+#Provate Data
+VicOneERPAPI/ 
