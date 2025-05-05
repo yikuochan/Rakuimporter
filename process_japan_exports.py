@@ -138,10 +138,10 @@ def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any
         shortcut_dim_2_code = entry_data.get("department", "")
     
     # Determine Account_No based on account type
-    # For Vendor accounts, use a valid vendor ID (e.g., "V001")
+    # For Vendor accounts, use the sub_account field which might contain the vendor ID
     # For other accounts, use the account field as before
     if entry_data.get("gl_account", "") == "Vendor":
-        account_no = "V001"  # Replace with a valid vendor ID from your ERP system
+        account_no = entry_data.get("sub_account", "")
     else:
         account_no = entry_data.get("account", "")
     
