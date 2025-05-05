@@ -129,6 +129,14 @@ def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any
     # Determine ShortcutDimCode4 (vendor_code if present, otherwise applicant_code)
     shortcut_dim_code4 = entry_data.get("vendor_code", "") or entry_data.get("applicant_code", "")
     
+    # Determine Shortcut_Dimension_2_Code based on account type
+    # For Vendor accounts, use department_code which has the 9999 suffix
+    # For other accounts, use department as before
+    if entry_data.get("gl_account", "") == "Vendor":
+        shortcut_dim_2_code = entry_data.get("department_code", "")
+    else:
+        shortcut_dim_2_code = entry_data.get("department", "")
+    
     # Create the journal line payload
     journal_line = {
         "Journal_Template_Name": JOURNAL_TEMPLATE_NAME,
@@ -141,7 +149,7 @@ def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any
         "Currency_Code": entry_data.get("currency", ""),
         "Amount": amount,
         "Shortcut_Dimension_1_Code": entry_data.get("department", "")[:3] if entry_data.get("department") else "",
-        "Shortcut_Dimension_2_Code": entry_data.get("department", ""),
+        "Shortcut_Dimension_2_Code": shortcut_dim_2_code,
         "ShortcutDimCode3": "",
         "ShortcutDimCode4": shortcut_dim_code4,
         "ShortcutDimCode5": "",
