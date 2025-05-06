@@ -10,7 +10,7 @@ Usage:
     python process_japan_exports.py <input_json_file>
 
 Example:
-    python process_japan_exports.py jp-test-Evelyn\ Raku\ export_journal_data.json
+    python process_japan_exports.py jp-test-Evelyn\\ Raku\\ export_journal_data.json
 """
 
 import argparse
@@ -130,10 +130,17 @@ def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any
     shortcut_dim_code4 = entry_data.get("vendor_code", "") or entry_data.get("applicant_code", "")
     
     # Determine Shortcut_Dimension_2_Code based on account type
-    # For Vendor accounts, use department_code which has the 9999 suffix
-    # For other accounts, use department as before
     if entry_data.get("gl_account", "") == "Vendor":
-        shortcut_dim_2_code = entry_data.get("department_code", "")
+        # Get the original department_code
+        original_dept_code = entry_data.get("department_code", "")
+        
+        # Transform department_code for Vendor accounts
+        if original_dept_code and len(original_dept_code) >= 3:
+            # Take first 3 characters and append .9999
+            shortcut_dim_2_code = original_dept_code[:3] + ".9999"
+        else:
+            # Fallback if department_code is missing or too short
+            shortcut_dim_2_code = original_dept_code
     else:
         shortcut_dim_2_code = entry_data.get("department", "")
     
