@@ -129,6 +129,11 @@ def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any
     # Determine ShortcutDimCode4 (vendor_code if present, otherwise applicant_code)
     shortcut_dim_code4 = entry_data.get("vendor_code", "") or entry_data.get("applicant_code", "")
     
+    # Ensure shortcut_dim_code4 is not too long (max 100 chars)
+    if len(shortcut_dim_code4) > 100:
+        shortcut_dim_code4 = shortcut_dim_code4[:100]
+        logger.warning(f"Truncated ShortcutDimCode4 to 100 characters: {shortcut_dim_code4}")
+    
     # Determine Shortcut_Dimension_2_Code based on account type
     if entry_data.get("gl_account", "") == "Vendor":
         # Get the original department_code
@@ -152,15 +157,32 @@ def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any
     else:
         account_no = entry_data.get("account", "")
     
+    # Ensure account_no is not too long (max 100 chars)
+    if len(account_no) > 100:
+        account_no = account_no[:100]
+        logger.warning(f"Truncated Account_No to 100 characters: {account_no}")
+    
+    # Get description and ensure it's not too long
+    description = entry.get("description", "")
+    if len(description) > 100:
+        description = description[:100]
+        logger.warning(f"Truncated Description to 100 characters: {description}")
+    
+    # Get voucher_no and ensure it's not too long
+    voucher_no = entry.get("voucher_no", "")
+    if len(voucher_no) > 100:
+        voucher_no = voucher_no[:100]
+        logger.warning(f"Truncated External_Document_No to 100 characters: {voucher_no}")
+    
     # Create the journal line payload
     journal_line = {
         "Journal_Template_Name": JOURNAL_TEMPLATE_NAME,
         "Journal_Batch_Name": JOURNAL_BATCH_NAME,
         "Document_Type": DOCUMENT_TYPE,
-        "External_Document_No": entry.get("voucher_no", ""),
+        "External_Document_No": voucher_no,
         "Account_Type": entry_data.get("gl_account", ""),
         "Account_No": account_no,
-        "Description": entry.get("description", ""),
+        "Description": description,
         "Currency_Code": entry_data.get("currency", ""),
         "Amount": amount,
         "Shortcut_Dimension_1_Code": entry_data.get("department", "")[:3] if entry_data.get("department") else "",
