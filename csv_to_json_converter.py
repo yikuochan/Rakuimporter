@@ -22,6 +22,18 @@ import json
 import io
 import argparse
 import sys
+import logging
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler("csv_conversion.log"),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger("csv_converter")
 
 def normalize_currency(currency):
     """
@@ -37,10 +49,35 @@ def normalize_currency(currency):
         return "NTD"
     elif currency == "円":
         return "JPY"
+    elif currency == "CNY":
+        return "RMB"
     else:
         return currency
 
-def convert_csv_to_json(csv_file_path, json_file_path):
+def truncate_description(description, max_length=100):
+    """
+    Truncate description to the specified maximum length.
+    
+    Args:
+        description (str): The description to truncate
+        max_length (int): Maximum allowed length
+        
+    Returns:
+        str: The truncated description
+    """
+    if not description:
+        return ""
+        
+    if len(description) > max_length:
+        truncated = description[:max_length]
+        logger.warning(
+            f"Description truncated from {len(description)} to {max_length} characters: "
+            f"'{description}' -> '{truncated}'"
+        )
+        return truncated
+    return description
+
+def convert_csv_to_json(csv_file_path, json_file_path, max_desc_length=100):
     """
     Convert a General Journal CSV file to JSON format.
     
@@ -92,7 +129,7 @@ def convert_csv_to_json(csv_file_path, json_file_path):
             "transaction_date": debit_data.get("仕訳日") or credit_data.get("仕訳日") or "",
             "application_date": debit_data.get("申請日") or credit_data.get("申請日") or "",
             "journal_generation_date": debit_data.get("仕訳データ生成日") or credit_data.get("仕訳データ生成日") or "",
-            "description": debit_data.get("摘要") or credit_data.get("摘要") or "",
+            "description": truncate_description(debit_data.get("摘要") or credit_data.get("摘要") or "", max_desc_length),
             "note": debit_data.get("Note(明細)") or credit_data.get("Note(明細)") or "",
             "receipt_invoice": debit_data.get("Receipt/Invoice #(明細)") or credit_data.get("Receipt/Invoice #(明細)") or "",
             "debit": {
@@ -165,7 +202,14 @@ def convert_csv_to_json(csv_file_path, json_file_path):
         except ValueError:
             pass
         
-        journal_entries.append(entry)
+        # Skip entries with VCJ.9999 in department_code
+        if (entry["debit"]["department_code"] != "VCJ.9999" and 
+            entry["credit"]["department_code"] != "VCJ.9999"):
+            journal_entries.append(entry)
+            logger.info(f"Added entry with voucher_no {entry['voucher_no']}")
+        else:
+            logger.info(f"Skipping entry with voucher_no {entry['voucher_no']} due to VCJ.9999 in department_code")
+        
         i += 2  # Move to the next pair of rows
     
     # Write the JSON output
@@ -182,6 +226,8 @@ if __name__ == "__main__":
     )
     parser.add_argument('-i', '--input', required=True, help='Input CSV file path (required)')
     parser.add_argument('-o', '--output', help='Output JSON file path (default: input_filename.json)')
+    parser.add_argument('--max-desc-length', type=int, default=100, 
+                        help='Maximum length for description field (default: 100)')
     
     args = parser.parse_args()
     
@@ -191,7 +237,7 @@ if __name__ == "__main__":
         args.output = f"{input_base}.json"
     
     try:
-        entry_count = convert_csv_to_json(args.input, args.output)
+        entry_count = convert_csv_to_json(args.input, args.output, args.max_desc_length)
         print(f"Converted {entry_count} journal entries to JSON format.")
         print(f"Output saved to {args.output}")
     except FileNotFoundError as e:
