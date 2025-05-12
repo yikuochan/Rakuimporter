@@ -45,4 +45,6 @@ ehthumbs.db
 Thumbs.db
 
 #Provate Data
-VicOneERPAPI/ 
+VicOneERPAPI/
+Data/
+Tools/ 
