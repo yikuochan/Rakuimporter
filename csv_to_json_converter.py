@@ -166,8 +166,8 @@ def convert_csv_to_json(csv_file_path, json_file_path, max_desc_length=100):
         def process_vendor_account(side, side_data, entry_side, is_credit=False):
             """Process vendor account data for either debit or credit side"""
             if entry_side["gl_account"] == "Vendor":
-                # First try to use 借方：負担部門：会計連携項目, if empty use 申請者CD/支払先CD
-                entry_side["account"] = side_data.get("借方：負担部門：会計連携項目") or side_data.get("申請者CD/支払先CD") or ""
+                # For Vendor accounts, prioritize vendor_code first, then applicant_code
+                entry_side["account"] = side_data.get("支払先CD") or side_data.get("申請者CD/支払先CD") or ""
                 
                 # Update vendor_code according to new requirement: use 支払先CD, if empty use 申請者CD/支払先CD
                 entry_side["vendor_code"] = side_data.get("支払先CD") or side_data.get("申請者CD/支払先CD") or ""
@@ -184,12 +184,15 @@ def convert_csv_to_json(csv_file_path, json_file_path, max_desc_length=100):
         def process_gl_account(side, side_data, entry_side, voucher_no, is_credit=False):
             """Process G/L Account data for either debit or credit side"""
             if entry_side["gl_account"] == "G/L Account":
-                # Determine which field to use based on debit or credit side
-                sub_account_field = "貸方：補助科目：会計連携項目" if is_credit else "借方：補助科目：会計連携項目"
-                
-                # First try to use the appropriate 補助科目 field, if empty use 支払先CD
+                # For G/L Account, prioritize 借方：補助科目：会計連携項目 first, then 借方：勘定科目：会計連携項目
                 original_account = entry_side["account"]
-                entry_side["account"] = side_data.get(sub_account_field) or side_data.get("支払先CD") or entry_side["account"]
+                
+                if is_credit:
+                    # For credit side, implement the new priority logic
+                    entry_side["account"] = side_data.get("貸方：補助科目：会計連携項目") or side_data.get("貸方：勘定科目：会計連携項目") or side_data.get("支払先CD") or entry_side["account"]
+                else:
+                    # For debit side, implement the new priority logic
+                    entry_side["account"] = side_data.get("借方：補助科目：会計連携項目") or side_data.get("借方：勘定科目：会計連携項目") or side_data.get("支払先CD") or entry_side["account"]
                 
                 if entry_side["account"] != original_account:
                     side_name = "credit" if is_credit else "debit"
