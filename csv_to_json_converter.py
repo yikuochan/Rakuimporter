@@ -50,7 +50,9 @@ def normalize_currency(currency):
     elif currency == "円":
         return "JPY"
     elif currency == "CNY":
-        return "RMB"
+        return "R-RMB"
+    elif currency == "R-CNY":
+        return "R-RMB"
     else:
         return currency
 
@@ -160,34 +162,45 @@ def convert_csv_to_json(csv_file_path, json_file_path, max_desc_length=100):
             }
         }
         
-        # Special handling for Vendor gl_account type
-        # For debit side
-        if entry["debit"]["gl_account"] == "Vendor":
-            # First try to use 借方：負担部門：会計連携項目, if empty use 申請者CD/支払先CD
-            entry["debit"]["account"] = debit_data.get("借方：負担部門：会計連携項目") or debit_data.get("申請者CD/支払先CD") or ""
-            
-            # Update vendor_code according to new requirement: use 支払先CD, if empty use 申請者CD/支払先CD
-            entry["debit"]["vendor_code"] = debit_data.get("支払先CD") or debit_data.get("申請者CD/支払先CD") or ""
-            
-            # Transform department_code for Vendor gl_account type
-            if entry["debit"]["department_code"]:
-                # Take first 3 characters and append .9999
-                if len(entry["debit"]["department_code"]) >= 3:
-                    entry["debit"]["department_code"] = entry["debit"]["department_code"][:3] + ".9999"
+        # Helper functions to reduce code duplication
+        def process_vendor_account(side, side_data, entry_side, is_credit=False):
+            """Process vendor account data for either debit or credit side"""
+            if entry_side["gl_account"] == "Vendor":
+                # First try to use 借方：負担部門：会計連携項目, if empty use 申請者CD/支払先CD
+                entry_side["account"] = side_data.get("借方：負担部門：会計連携項目") or side_data.get("申請者CD/支払先CD") or ""
+                
+                # Update vendor_code according to new requirement: use 支払先CD, if empty use 申請者CD/支払先CD
+                entry_side["vendor_code"] = side_data.get("支払先CD") or side_data.get("申請者CD/支払先CD") or ""
+                
+                # Transform department_code for Vendor gl_account type
+                if entry_side["department_code"]:
+                    # Special case for credit side with department "VCJ.9999" and department_code "1000"
+                    if is_credit and entry_side["department"] == "VCJ.9999" and entry_side["department_code"] == "1000":
+                        entry_side["department_code"] = "VCJ.9999"
+                    # For all other cases, take first 3 characters and append .9999
+                    elif len(entry_side["department_code"]) >= 3:
+                        entry_side["department_code"] = entry_side["department_code"][:3] + ".9999"
         
-        # For credit side
-        if entry["credit"]["gl_account"] == "Vendor":
-            # First try to use 借方：負担部門：会計連携項目, if empty use 申請者CD/支払先CD
-            entry["credit"]["account"] = credit_data.get("借方：負担部門：会計連携項目") or credit_data.get("申請者CD/支払先CD") or ""
-            
-            # Update vendor_code according to new requirement: use 支払先CD, if empty use 申請者CD/支払先CD
-            entry["credit"]["vendor_code"] = credit_data.get("支払先CD") or credit_data.get("申請者CD/支払先CD") or ""
-            
-            # Transform department_code for Vendor gl_account type
-            if entry["credit"]["department_code"]:
-                # Take first 3 characters and append .9999
-                if len(entry["credit"]["department_code"]) >= 3:
-                    entry["credit"]["department_code"] = entry["credit"]["department_code"][:3] + ".9999"
+        def process_gl_account(side, side_data, entry_side, voucher_no, is_credit=False):
+            """Process G/L Account data for either debit or credit side"""
+            if entry_side["gl_account"] == "G/L Account":
+                # Determine which field to use based on debit or credit side
+                sub_account_field = "貸方：補助科目：会計連携項目" if is_credit else "借方：補助科目：会計連携項目"
+                
+                # First try to use the appropriate 補助科目 field, if empty use 支払先CD
+                original_account = entry_side["account"]
+                entry_side["account"] = side_data.get(sub_account_field) or side_data.get("支払先CD") or entry_side["account"]
+                
+                if entry_side["account"] != original_account:
+                    side_name = "credit" if is_credit else "debit"
+                    logger.info(f"Updated {side_name} account for G/L Account in voucher {voucher_no} to {entry_side['account']}")
+        
+        # Process both sides using the helper functions
+        process_vendor_account("debit", debit_data, entry["debit"])
+        process_vendor_account("credit", credit_data, entry["credit"], is_credit=True)
+        
+        process_gl_account("debit", debit_data, entry["debit"], entry["voucher_no"])
+        process_gl_account("credit", credit_data, entry["credit"], entry["voucher_no"], is_credit=True)
         
         # Convert numeric values
         try:
