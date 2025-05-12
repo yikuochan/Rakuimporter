@@ -10,7 +10,7 @@ Usage:
     python process_japan_exports.py <input_json_file>
 
 Example:
-    python process_japan_exports.py jp-test-Evelyn\ Raku\ export_journal_data.json
+    python process_japan_exports.py jp-test-Evelyn\\ Raku\\ export_journal_data.json
 """
 
 import argparse
@@ -21,7 +21,12 @@ import sys
 import time
 from typing import Dict, List, Any, Optional, Tuple
 
+import certifi
 import requests
+import urllib3
+
+# Disable SSL warnings (for testing only)
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Import environment configuration utility
 try:
@@ -91,7 +96,8 @@ def get_access_token() -> str:
     try:
         # Log the token request data
         logger.info(f"Token request body: {data}")
-        response = requests.post(TOKEN_URL, data=data)
+        # Temporarily disable SSL verification for testing
+        response = requests.post(TOKEN_URL, data=data, verify=False)
         # Log response status and headers
         logger.info(f"Token response status code: {response.status_code}")
         logger.info(f"Token response headers: {json.dumps(dict(response.headers), indent=2)}")
@@ -129,31 +135,60 @@ def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any
     # Determine ShortcutDimCode4 (vendor_code if present, otherwise applicant_code)
     shortcut_dim_code4 = entry_data.get("vendor_code", "") or entry_data.get("applicant_code", "")
     
+    # Ensure shortcut_dim_code4 is not too long (max 100 chars)
+    if len(shortcut_dim_code4) > 100:
+        shortcut_dim_code4 = shortcut_dim_code4[:100]
+        logger.warning(f"Truncated ShortcutDimCode4 to 100 characters: {shortcut_dim_code4}")
+    
     # Determine Shortcut_Dimension_2_Code based on account type
-    # For Vendor accounts, use department_code which has the 9999 suffix
-    # For other accounts, use department as before
     if entry_data.get("gl_account", "") == "Vendor":
-        shortcut_dim_2_code = entry_data.get("department_code", "")
+        # Get the original department_code
+        original_dept_code = entry_data.get("department_code", "")
+        
+        # Transform department_code for Vendor accounts
+        if original_dept_code and len(original_dept_code) >= 3:
+            # Take first 3 characters and append .9999
+            shortcut_dim_2_code = original_dept_code[:3] + ".9999"
+        else:
+            # Fallback if department_code is missing or too short
+            shortcut_dim_2_code = original_dept_code
     else:
         shortcut_dim_2_code = entry_data.get("department", "")
     
-    # Determine Account_No based on account type
-    # For Vendor accounts, use the sub_account field which might contain the vendor ID
-    # For other accounts, use the account field as before
+    # Determine Account_No based on the account type
+    # For Vendor accounts, use vendor_code
+    # For other accounts, use the account field
     if entry_data.get("gl_account", "") == "Vendor":
-        account_no = entry_data.get("sub_account", "")
+        account_no = entry_data.get("vendor_code", "")
     else:
         account_no = entry_data.get("account", "")
+    
+    # Ensure account_no is not too long (max 100 chars)
+    if len(account_no) > 100:
+        account_no = account_no[:100]
+        logger.warning(f"Truncated Account_No to 100 characters: {account_no}")
+    
+    # Get description and ensure it's not too long
+    description = entry.get("description", "")
+    if len(description) > 100:
+        description = description[:100]
+        logger.warning(f"Truncated Description to 100 characters: {description}")
+    
+    # Get voucher_no and ensure it's not too long
+    voucher_no = entry.get("voucher_no", "")
+    if len(voucher_no) > 100:
+        voucher_no = voucher_no[:100]
+        logger.warning(f"Truncated External_Document_No to 100 characters: {voucher_no}")
     
     # Create the journal line payload
     journal_line = {
         "Journal_Template_Name": JOURNAL_TEMPLATE_NAME,
         "Journal_Batch_Name": JOURNAL_BATCH_NAME,
         "Document_Type": DOCUMENT_TYPE,
-        "External_Document_No": entry.get("voucher_no", ""),
+        "External_Document_No": voucher_no,
         "Account_Type": entry_data.get("gl_account", ""),
         "Account_No": account_no,
-        "Description": entry.get("description", ""),
+        "Description": description,
         "Currency_Code": entry_data.get("currency", ""),
         "Amount": amount,
         "Shortcut_Dimension_1_Code": entry_data.get("department", "")[:3] if entry_data.get("department") else "",
@@ -187,6 +222,23 @@ def post_journal_line(journal_line: Dict[str, Any], access_token: str) -> Tuple[
     Returns:
         Tuple[bool, Dict[str, Any]]: Success status and response data
     """
+    # Extract company code from Shortcut_Dimension_1_Code
+    shortcut_dim_code = journal_line.get("Shortcut_Dimension_1_Code", "")
+    
+    # Default to the environment variable if no code is found
+    api_url = API_URL
+    
+    # If we have a shortcut dimension code, extract the company code
+    if shortcut_dim_code:
+        # If the code contains a period, extract only the part before the period
+        company_code = shortcut_dim_code.split('.')[0] if '.' in shortcut_dim_code else shortcut_dim_code
+        
+        if company_code:
+            # Construct the API URL with the company code
+            base_url = "https://api.businesscentral.dynamics.com/v2.0/6b83c27c-aa6d-475a-9933-5c34bb008d73/Staging/ODataV4/Company"
+            api_url = f"{base_url}('{company_code}')/PurchaseJournals"
+            logger.info(f"Using company-specific API URL for {company_code}: {api_url}")
+    
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json"
@@ -200,7 +252,8 @@ def post_journal_line(journal_line: Dict[str, Any], access_token: str) -> Tuple[
         if "Authorization" in safe_headers:
             safe_headers["Authorization"] = "Bearer [REDACTED]"
         logger.info(f"Request headers: {json.dumps(safe_headers, indent=2)}")
-        response = requests.post(API_URL, json=journal_line, headers=headers)
+        # Temporarily disable SSL verification for testing
+        response = requests.post(api_url, json=journal_line, headers=headers, verify=False)
         # Log response status and headers
         logger.info(f"Response status code: {response.status_code}")
         logger.info(f"Response headers: {json.dumps(dict(response.headers), indent=2)}")
