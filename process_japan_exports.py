@@ -132,8 +132,8 @@ def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any
     # Determine amount (positive for debit, negative for credit)
     amount = entry_data["amount"] if entry_type == "debit" else -entry_data["amount"]
     
-    # Determine ShortcutDimCode4 (vendor_code if present, otherwise applicant_code)
-    shortcut_dim_code4 = entry_data.get("vendor_code", "") or entry_data.get("applicant_code", "")
+    # Determine ShortcutDimCode4 (empty if vendor_code present, otherwise use applicant_code)
+    shortcut_dim_code4 = "" if entry_data.get("vendor_code") else entry_data.get("applicant_code", "")
     
     # Ensure shortcut_dim_code4 is not too long (max 100 chars)
     if len(shortcut_dim_code4) > 100:

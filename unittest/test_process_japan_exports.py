@@ -155,7 +155,7 @@ class TestERPIntegration(unittest.TestCase):
             "Amount": -500, # Negative for credit
             "Shortcut_Dimension_1_Code": "", # department not present in credit for non-vendor logic path
             "Shortcut_Dimension_2_Code": "FIN.9999", # Transformed department_code
-            "ShortcutDimCode3": "", "ShortcutDimCode4": "VEND001", "ShortcutDimCode5": "",
+            "ShortcutDimCode3": "", "ShortcutDimCode4": "", "ShortcutDimCode5": "",
             "ShortcutDimCode6": "", "ShortcutDimCode7": "", "ShortcutDimCode8": "",
             "ShortcutDimCode9": "", "ShortcutDimCode10": "", "ShortcutDimCode11": "",
             "ShortcutDimCode12": "", "ShortcutDimCode13": "", "ShortcutDimCode14": "",
