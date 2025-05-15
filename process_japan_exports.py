@@ -131,11 +131,12 @@ def transform_currency(company_code: str, currency_code: str, amount: float) -> 
         Tuple[str, float]: The transformed currency code and converted amount
     """
     # Define the mapping of company codes to their respective "home" currencies
+    # Updated to align with currency_converter.py
     company_currency_map = {
         "VCT": "NTD",
-        "VCP": "R-PHP",
-        "VCA": "R-USD",
-        "VCG": "R-EUR",
+        "VCP": "PHP",  # Removed "R-" prefix
+        "VCA": "USD",  # Removed "R-" prefix
+        "VCG": "EUR",  # Removed "R-" prefix
         "VCJ": "JPY"
     }
     
@@ -177,11 +178,12 @@ def transform_currency_code(company_code: str, currency_code: str) -> str:
         str: The transformed currency code (empty string if it matches the rule)
     """
     # Define the mapping of company codes to their respective "home" currencies
+    # Updated to align with currency_converter.py
     company_currency_map = {
         "VCT": "NTD",
-        "VCP": "R-PHP",
-        "VCA": "R-USD",
-        "VCG": "R-EUR",
+        "VCP": "PHP",  # Removed "R-" prefix
+        "VCA": "USD",  # Removed "R-" prefix
+        "VCG": "EUR",  # Removed "R-" prefix
         "VCJ": "JPY"
     }
     
@@ -210,6 +212,16 @@ def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any
     
     # Get original amount
     original_amount = entry_data["amount"] if entry_type == "debit" else -entry_data["amount"]
+    
+    # Add a note for consolidated entries
+    description = entry.get("description", "")
+    if entry_type == "credit" and entry_data.get("consolidated", False):
+        consolidation_note = entry_data.get("consolidation_note", f"Consolidated from {entry_data.get('original_entries_count', 1)} entries")
+        if description and len(description) + len(consolidation_note) + 3 <= 100:  # +3 for " - "
+            description = f"{description} - {consolidation_note}"
+        elif len(consolidation_note) <= 100:
+            description = consolidation_note
+        logger.info(f"Added consolidation note to description: {description}")
     
     # Determine ShortcutDimCode4 (empty if vendor_code present, otherwise use applicant_code)
     shortcut_dim_code4 = "" if entry_data.get("vendor_code") else entry_data.get("applicant_code", "")
@@ -247,8 +259,7 @@ def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any
         account_no = account_no[:100]
         logger.warning(f"Truncated Account_No to 100 characters: {account_no}")
     
-    # Get description and ensure it's not too long
-    description = entry.get("description", "")
+    # Ensure description is not too long
     if len(description) > 100:
         description = description[:100]
         logger.warning(f"Truncated Description to 100 characters: {description}")
@@ -451,24 +462,38 @@ def process_entries(entries: List[Dict[str, Any]], access_token: str) -> Tuple[i
     for i, entry in enumerate(entries):
         logger.info(f"Processing entry {i+1}/{len(entries)} - Voucher: {entry.get('voucher_no', 'Unknown')}")
         
-        # Process debit line
-        debit_line = create_journal_line(entry, "debit")
-        logger.info(f"Posting debit line for voucher {entry.get('voucher_no', 'Unknown')}")
-        debit_success, debit_response = post_journal_line(debit_line, access_token)
+        # Check if this is a consolidated credit entry (with consolidated flag)
+        is_consolidated_credit = entry["credit"].get("consolidated", False)
         
-        if debit_success:
-            logger.info(f"Successfully posted debit line for voucher {entry.get('voucher_no', 'Unknown')}")
-            success_count += 1
+        # Process debit line if this is not a consolidated credit-only entry
+        # We check if debit amount exists because consolidated entries might have empty debit section
+        if not is_consolidated_credit or (entry["debit"] and entry["debit"].get("amount")):
+            debit_line = create_journal_line(entry, "debit")
+            logger.info(f"Posting debit line for voucher {entry.get('voucher_no', 'Unknown')}")
+            debit_success, debit_response = post_journal_line(debit_line, access_token)
+            
+            if debit_success:
+                logger.info(f"Successfully posted debit line for voucher {entry.get('voucher_no', 'Unknown')}")
+                success_count += 1
+            else:
+                logger.error(f"Failed to post debit line for voucher {entry.get('voucher_no', 'Unknown')}")
+                failure_count += 1
+            
+            # Small delay between requests to avoid rate limiting
+            time.sleep(0.5)
         else:
-            logger.error(f"Failed to post debit line for voucher {entry.get('voucher_no', 'Unknown')}")
-            failure_count += 1
-        
-        # Small delay between requests to avoid rate limiting
-        time.sleep(0.5)
+            logger.info(f"Skipping debit line for consolidated credit entry - Voucher: {entry.get('voucher_no', 'Unknown')}")
         
         # Process credit line
         credit_line = create_journal_line(entry, "credit")
-        logger.info(f"Posting credit line for voucher {entry.get('voucher_no', 'Unknown')}")
+        
+        # Add logging for consolidated credit entries
+        if is_consolidated_credit:
+            logger.info(f"Posting consolidated credit line for voucher {entry.get('voucher_no', 'Unknown')} - " +
+                       f"Consolidated from {entry['credit'].get('original_entries_count', 1)} entries")
+        else:
+            logger.info(f"Posting credit line for voucher {entry.get('voucher_no', 'Unknown')}")
+            
         credit_success, credit_response = post_journal_line(credit_line, access_token)
         
         if credit_success:
