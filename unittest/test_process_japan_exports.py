@@ -39,6 +39,30 @@ class TestERPIntegration(unittest.TestCase):
 
     def tearDown(self):
         self.patcher.stop()
+        
+    # Tests for transform_currency_code
+    def test_transform_currency_code(self):
+        # Test cases where currency should be emptied
+        self.assertEqual(erp_script.transform_currency_code("VCT", "NTD"), "")
+        self.assertEqual(erp_script.transform_currency_code("VCP", "R-PHP"), "")
+        self.assertEqual(erp_script.transform_currency_code("VCA", "R-USD"), "")
+        self.assertEqual(erp_script.transform_currency_code("VCG", "R-EUR"), "")
+        self.assertEqual(erp_script.transform_currency_code("VCJ", "JPY"), "")
+        
+        # Test cases where currency should remain unchanged
+        self.assertEqual(erp_script.transform_currency_code("VCT", "USD"), "USD")
+        self.assertEqual(erp_script.transform_currency_code("VCP", "EUR"), "EUR")
+        self.assertEqual(erp_script.transform_currency_code("VCA", "JPY"), "JPY")
+        self.assertEqual(erp_script.transform_currency_code("VCG", "NTD"), "NTD")
+        self.assertEqual(erp_script.transform_currency_code("VCJ", "USD"), "USD")
+        
+        # Test with unknown company code
+        self.assertEqual(erp_script.transform_currency_code("XYZ", "NTD"), "NTD")
+        
+        # Test with empty inputs
+        self.assertEqual(erp_script.transform_currency_code("", ""), "")
+        self.assertEqual(erp_script.transform_currency_code("VCT", ""), "")
+        self.assertEqual(erp_script.transform_currency_code("", "NTD"), "NTD")
 
     # Tests for get_env_var (assuming the fallback implementation is used)
     @patch.dict(os.environ, {"TEST_VAR": "test_value"}, clear=True)
@@ -155,7 +179,7 @@ class TestERPIntegration(unittest.TestCase):
             "Amount": -500, # Negative for credit
             "Shortcut_Dimension_1_Code": "", # department not present in credit for non-vendor logic path
             "Shortcut_Dimension_2_Code": "FIN.9999", # Transformed department_code
-            "ShortcutDimCode3": "", "ShortcutDimCode4": "VEND001", "ShortcutDimCode5": "",
+            "ShortcutDimCode3": "", "ShortcutDimCode4": "", "ShortcutDimCode5": "",
             "ShortcutDimCode6": "", "ShortcutDimCode7": "", "ShortcutDimCode8": "",
             "ShortcutDimCode9": "", "ShortcutDimCode10": "", "ShortcutDimCode11": "",
             "ShortcutDimCode12": "", "ShortcutDimCode13": "", "ShortcutDimCode14": "",
@@ -282,6 +306,46 @@ class TestERPIntegration(unittest.TestCase):
         mock_post_journal.assert_any_call({"id": "debit1"}, "fake_token")
         mock_post_journal.assert_any_call({"id": "credit1"}, "fake_token")
 
+    # Tests for generate_currency_modification_report
+    @patch('builtins.open', new_callable=mock_open)
+    def test_generate_currency_modification_report(self, mock_file):
+        entries = [
+            {
+                "voucher_no": "V001",
+                "debit": {"department": "VCT.1234", "currency": "NTD"},
+                "credit": {"department": "VCT.5678", "currency": "USD"}
+            },
+            {
+                "voucher_no": "V002",
+                "debit": {"department": "VCP.1234", "currency": "R-PHP"},
+                "credit": {"department": "VCA.5678", "currency": "R-USD"}
+            }
+        ]
+        
+        modifications = erp_script.generate_currency_modification_report(entries, "test_report.md")
+        
+        # Check that the report file was opened for writing
+        mock_file.assert_called_once_with("test_report.md", 'w')
+        
+        # Check that the correct number of modifications were detected
+        self.assertEqual(len(modifications), 3)
+        
+        # Check the content of the modifications
+        expected_mods = [
+            {"voucher_no": "V001", "line_type": "debit", "company_code": "VCT", "original_currency": "NTD", "transformed_currency": ""},
+            {"voucher_no": "V002", "line_type": "debit", "company_code": "VCP", "original_currency": "R-PHP", "transformed_currency": ""},
+            {"voucher_no": "V002", "line_type": "credit", "company_code": "VCA", "original_currency": "R-USD", "transformed_currency": ""}
+        ]
+        
+        for expected, actual in zip(expected_mods, modifications):
+            self.assertEqual(expected, actual)
+        
+        # Check that the write method was called with the correct content
+        write_calls = mock_file().write.call_args_list
+        self.assertTrue(any("# Currency Modification Report" in args[0] for args, _ in write_calls))
+        self.assertTrue(any("| Voucher No | Line Type | Company Code | Original Currency | Transformed Currency |" in args[0] for args, _ in write_calls))
+        self.assertTrue(any("Total modifications: 3" in args[0] for args, _ in write_calls))
+
     # Tests for main function (high-level integration)
     @patch('process_japan_exports.argparse.ArgumentParser')
     @patch('process_japan_exports.os.path.exists')
@@ -348,17 +412,45 @@ class TestERPIntegration(unittest.TestCase):
     @patch('process_japan_exports.os.path.exists', return_value=True)
     @patch('builtins.open', new_callable=mock_open, read_data='[{"id":1}]')
     @patch('process_japan_exports.json.load', return_value=[{"entry":1}])
+    @patch('process_japan_exports.generate_currency_modification_report')
     @patch('process_japan_exports.get_access_token', side_effect=Exception("Token fetch failed"))
     @patch('sys.exit')
-    def test_main_token_acquisition_failure(self, mock_sys_exit, mock_get_access_token, mock_json_load, mock_file_open, mock_path_exists, mock_arg_parser):
+    def test_main_token_acquisition_failure(self, mock_sys_exit, mock_get_access_token, mock_generate_report, 
+                                           mock_json_load, mock_file_open, mock_path_exists, mock_arg_parser):
         mock_args = MagicMock()
         mock_args.input_file = "good.json"
+        mock_args.report = "report.md"
+        mock_args.dry_run = False
         mock_arg_parser.return_value.parse_args.return_value = mock_args
+        mock_generate_report.return_value = []
 
         erp_script.main()
         
+        mock_generate_report.assert_called_once_with([{"entry":1}], "report.md")
         self.mock_logger.error.assert_called_with("Failed to get access token: Token fetch failed")
         mock_sys_exit.assert_called_once_with(1)
+        
+    @patch('process_japan_exports.argparse.ArgumentParser')
+    @patch('process_japan_exports.os.path.exists', return_value=True)
+    @patch('builtins.open', new_callable=mock_open, read_data='[{"id":1}]')
+    @patch('process_japan_exports.json.load', return_value=[{"entry":1}])
+    @patch('process_japan_exports.generate_currency_modification_report')
+    @patch('sys.exit')
+    def test_main_dry_run(self, mock_sys_exit, mock_generate_report, mock_json_load, 
+                         mock_file_open, mock_path_exists, mock_arg_parser):
+        mock_args = MagicMock()
+        mock_args.input_file = "good.json"
+        mock_args.report = "report.md"
+        mock_args.dry_run = True
+        mock_arg_parser.return_value.parse_args.return_value = mock_args
+        mock_generate_report.return_value = [{"modification": "test"}]
+
+        erp_script.main()
+        
+        mock_generate_report.assert_called_once_with([{"entry":1}], "report.md")
+        self.mock_logger.info.assert_any_call("Generated currency modification report with 1 modifications")
+        self.mock_logger.info.assert_any_call("Dry run completed. Exiting without posting to API.")
+        mock_sys_exit.assert_called_once_with(0)
 
 
 if __name__ == '__main__':

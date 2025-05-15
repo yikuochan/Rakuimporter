@@ -25,6 +25,9 @@ import certifi
 import requests
 import urllib3
 
+# Import currency converter
+from currency_converter import convert_amount, get_region_currency
+
 # Disable SSL warnings (for testing only)
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -115,6 +118,82 @@ def get_access_token() -> str:
         raise
 
 
+def transform_currency(company_code: str, currency_code: str, amount: float) -> Tuple[str, float]:
+    """
+    Transform currency code based on company code and convert amount according to business rules.
+    
+    Args:
+        company_code: The company code (e.g., VCT, VCP, etc.)
+        currency_code: The original currency code from the JSON
+        amount: The amount to convert
+        
+    Returns:
+        Tuple[str, float]: The transformed currency code and converted amount
+    """
+    # Define the mapping of company codes to their respective "home" currencies
+    company_currency_map = {
+        "VCT": "NTD",
+        "VCP": "R-PHP",
+        "VCA": "R-USD",
+        "VCG": "R-EUR",
+        "VCJ": "JPY"
+    }
+    
+    # If the company code exists in our mapping
+    if company_code in company_currency_map:
+        target_currency = company_currency_map[company_code]
+        
+        # If the currency already matches the target, just return empty string and original amount
+        if currency_code == target_currency:
+            logger.info(f"Transforming currency code for company {company_code}: {currency_code} -> ''")
+            return "", amount
+        
+        # If we have a different currency, convert the amount to the target currency
+        elif currency_code:
+            try:
+                # Convert amount to target currency
+                converted_amount = convert_amount(amount, currency_code, target_currency)
+                logger.info(f"Converted {amount} {currency_code} to {converted_amount:.2f} {target_currency} for company {company_code}")
+                # Return empty string for currency code (as it's the home currency) and the converted amount
+                return "", converted_amount
+            except Exception as e:
+                logger.warning(f"Failed to convert {amount} from {currency_code} to {target_currency}: {str(e)}")
+                # Return original currency code and amount if conversion fails
+                return currency_code, amount
+    
+    # If company code not in mapping or other issues, return original values
+    return currency_code, amount
+
+def transform_currency_code(company_code: str, currency_code: str) -> str:
+    """
+    Legacy function for backward compatibility.
+    Transform currency code based on company code according to business rules.
+    
+    Args:
+        company_code: The company code (e.g., VCT, VCP, etc.)
+        currency_code: The original currency code from the JSON
+        
+    Returns:
+        str: The transformed currency code (empty string if it matches the rule)
+    """
+    # Define the mapping of company codes to their respective "home" currencies
+    company_currency_map = {
+        "VCT": "NTD",
+        "VCP": "R-PHP",
+        "VCA": "R-USD",
+        "VCG": "R-EUR",
+        "VCJ": "JPY"
+    }
+    
+    # If the company code exists in our mapping and the currency matches,
+    # return empty string, otherwise return the original currency code
+    if company_code in company_currency_map and currency_code == company_currency_map[company_code]:
+        logger.info(f"Transforming currency code for company {company_code}: {currency_code} -> ''")
+        return ""
+    
+    return currency_code
+
+
 def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any]:
     """
     Create a journal line payload for the API from an entry.
@@ -129,11 +208,11 @@ def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any
     # Get the entry data based on type
     entry_data = entry[entry_type]
     
-    # Determine amount (positive for debit, negative for credit)
-    amount = entry_data["amount"] if entry_type == "debit" else -entry_data["amount"]
+    # Get original amount
+    original_amount = entry_data["amount"] if entry_type == "debit" else -entry_data["amount"]
     
-    # Determine ShortcutDimCode4 (vendor_code if present, otherwise applicant_code)
-    shortcut_dim_code4 = entry_data.get("vendor_code", "") or entry_data.get("applicant_code", "")
+    # Determine ShortcutDimCode4 (empty if vendor_code present, otherwise use applicant_code)
+    shortcut_dim_code4 = "" if entry_data.get("vendor_code") else entry_data.get("applicant_code", "")
     
     # Ensure shortcut_dim_code4 is not too long (max 100 chars)
     if len(shortcut_dim_code4) > 100:
@@ -180,6 +259,23 @@ def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any
         voucher_no = voucher_no[:100]
         logger.warning(f"Truncated External_Document_No to 100 characters: {voucher_no}")
     
+    # Determine the company code from the department field
+    department = entry_data.get("department", "")
+    company_code = department[:3] if department else ""
+    
+    # Get the original currency code
+    original_currency = entry_data.get("currency", "")
+    
+    # Transform the currency code and convert amount based on company code
+    transformed_currency, converted_amount = transform_currency(
+        company_code, 
+        original_currency, 
+        abs(original_amount)
+    )
+    
+    # Apply sign based on entry type
+    amount = converted_amount if entry_type == "debit" else -converted_amount
+    
     # Create the journal line payload
     journal_line = {
         "Journal_Template_Name": JOURNAL_TEMPLATE_NAME,
@@ -189,9 +285,9 @@ def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any
         "Account_Type": entry_data.get("gl_account", ""),
         "Account_No": account_no,
         "Description": description,
-        "Currency_Code": entry_data.get("currency", ""),
+        "Currency_Code": transformed_currency,
         "Amount": amount,
-        "Shortcut_Dimension_1_Code": entry_data.get("department", "")[:3] if entry_data.get("department") else "",
+        "Shortcut_Dimension_1_Code": company_code,
         "Shortcut_Dimension_2_Code": shortcut_dim_2_code,
         "ShortcutDimCode3": "",
         "ShortcutDimCode4": shortcut_dim_code4,
@@ -275,6 +371,69 @@ def post_journal_line(journal_line: Dict[str, Any], access_token: str) -> Tuple[
         return False, {"error": str(e)}
 
 
+def generate_currency_modification_report(entries: List[Dict[str, Any]], output_file: str) -> List[Dict[str, Any]]:
+    """
+    Generate a report of all currency code modifications.
+    
+    Args:
+        entries: List of journal entries
+        output_file: Path to the output report file
+    
+    Returns:
+        List[Dict[str, Any]]: List of modifications made
+    """
+    modifications = []
+    
+    for entry in entries:
+        voucher_no = entry.get("voucher_no", "Unknown")
+        
+        # Check debit line
+        debit_dept = entry.get("debit", {}).get("department", "")
+        debit_company = debit_dept[:3] if debit_dept else ""
+        debit_currency = entry.get("debit", {}).get("currency", "")
+        
+        if debit_company and debit_currency:
+            transformed_debit = transform_currency_code(debit_company, debit_currency)
+            if transformed_debit != debit_currency:
+                modifications.append({
+                    "voucher_no": voucher_no,
+                    "line_type": "debit",
+                    "company_code": debit_company,
+                    "original_currency": debit_currency,
+                    "transformed_currency": transformed_debit
+                })
+        
+        # Check credit line
+        credit_dept = entry.get("credit", {}).get("department", "")
+        credit_company = credit_dept[:3] if credit_dept else ""
+        credit_currency = entry.get("credit", {}).get("currency", "")
+        
+        if credit_company and credit_currency:
+            transformed_credit = transform_currency_code(credit_company, credit_currency)
+            if transformed_credit != credit_currency:
+                modifications.append({
+                    "voucher_no": voucher_no,
+                    "line_type": "credit",
+                    "company_code": credit_company,
+                    "original_currency": credit_currency,
+                    "transformed_currency": transformed_credit
+                })
+    
+    # Write the report to a markdown file
+    with open(output_file, 'w') as f:
+        f.write("# Currency Modification Report\n\n")
+        f.write("| Voucher No | Line Type | Company Code | Original Currency | Transformed Currency |\n")
+        f.write("|------------|-----------|--------------|-------------------|---------------------|\n")
+        
+        for mod in modifications:
+            f.write(f"| {mod['voucher_no']} | {mod['line_type']} | {mod['company_code']} | {mod['original_currency']} | {mod['transformed_currency']} |\n")
+        
+        f.write(f"\n\nTotal modifications: {len(modifications)}\n")
+    
+    logger.info(f"Currency modification report generated: {output_file}")
+    return modifications
+
+
 def process_entries(entries: List[Dict[str, Any]], access_token: str) -> Tuple[int, int]:
     """
     Process all entries and post them to the ERP API.
@@ -329,6 +488,8 @@ def main():
     """Main function to process the input file and post to the ERP API."""
     parser = argparse.ArgumentParser(description='Process JSON file and post to ERP API')
     parser.add_argument('input_file', help='Input JSON file path')
+    parser.add_argument('--report', help='Generate currency modification report to specified file path', default="currency_modification_report.md")
+    parser.add_argument('--dry-run', action='store_true', help='Generate report only without posting to API')
     args = parser.parse_args()
     
     # Check if input file exists
@@ -344,6 +505,15 @@ def main():
     except Exception as e:
         logger.error(f"Error loading input file: {str(e)}")
         sys.exit(1)
+    
+    # Generate currency modification report
+    modifications = generate_currency_modification_report(entries, args.report)
+    logger.info(f"Generated currency modification report with {len(modifications)} modifications")
+    
+    # If dry-run is specified, exit after generating the report
+    if args.dry_run:
+        logger.info("Dry run completed. Exiting without posting to API.")
+        sys.exit(0)
     
     # Get access token
     try:
