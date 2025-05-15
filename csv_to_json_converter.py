@@ -23,6 +23,8 @@ import io
 import argparse
 import sys
 import logging
+import collections
+from currency_converter import convert_amount, get_region_currency
 
 # Configure logging
 logging.basicConfig(
@@ -109,7 +111,7 @@ def convert_csv_to_json(csv_file_path, json_file_path, max_desc_length=100):
             combined_header.append(f"Column_{i}")
     
     # Process data rows
-    journal_entries = []
+    raw_entries = []
     i = 2  # Start after the header rows
     
     while i < len(lines) - 1:  # Ensure we have at least 2 more lines
@@ -221,18 +223,214 @@ def convert_csv_to_json(csv_file_path, json_file_path, max_desc_length=100):
         # Skip entries with VCJ.9999 in department_code
         if (entry["debit"]["department_code"] != "VCJ.9999" and 
             entry["credit"]["department_code"] != "VCJ.9999"):
-            journal_entries.append(entry)
+            raw_entries.append(entry)
             logger.info(f"Added entry with voucher_no {entry['voucher_no']}")
         else:
             logger.info(f"Skipping entry with voucher_no {entry['voucher_no']} due to VCJ.9999 in department_code")
         
         i += 2  # Move to the next pair of rows
     
+    # Consolidate entries based on voucher_no and vendor_code
+    consolidated_entries = consolidate_entries(raw_entries)
+    
     # Write the JSON output
     with open(json_file_path, 'w', encoding='utf-8') as json_file:
-        json.dump(journal_entries, json_file, ensure_ascii=False, indent=2)
+        json.dump(consolidated_entries, json_file, ensure_ascii=False, indent=2)
     
-    return len(journal_entries)
+    return len(consolidated_entries)
+
+def consolidate_entries(entries):
+    """
+    Consolidate entries based on voucher_no (伝票No.) and vendor_code.
+    For each voucher_no, sum up the vendor's total credit amount in local currency.
+    
+    Args:
+        entries (list): List of journal entries
+        
+    Returns:
+        list: List of consolidated journal entries
+    """
+    # Group entries by voucher_no
+    voucher_groups = collections.defaultdict(list)
+    for entry in entries:
+        voucher_no = entry["voucher_no"]
+        voucher_groups[voucher_no].append(entry)
+    
+    consolidated_entries = []
+    
+    for voucher_no, group in voucher_groups.items():
+        # Group by vendor_code within each voucher_no group
+        vendor_groups = collections.defaultdict(list)
+        for entry in group:
+            vendor_code = entry["credit"]["vendor_code"]
+            if not vendor_code:
+                # If vendor_code is empty, use applicant_code as fallback
+                vendor_code = entry["credit"]["applicant_code"]
+            
+            # If still no vendor code, use a placeholder
+            if not vendor_code:
+                vendor_code = "UNKNOWN"
+                
+            vendor_groups[vendor_code].append(entry)
+        
+        # Process each vendor group
+        for vendor_code, vendor_entries in vendor_groups.items():
+            # Keep all debit entries as they are
+            for entry in vendor_entries:
+                # Create a copy of the entry to avoid modifying the original
+                consolidated_entry = {
+                    "voucher_no": entry["voucher_no"],
+                    "transaction_date": entry["transaction_date"],
+                    "application_date": entry["application_date"],
+                    "journal_generation_date": entry["journal_generation_date"],
+                    "description": entry["description"],
+                    "note": entry["note"],
+                    "receipt_invoice": entry["receipt_invoice"],
+                    "debit": entry["debit"].copy(),
+                    "credit": entry["credit"].copy()
+                }
+                
+                # Convert debit amount to local currency if needed
+                if consolidated_entry["debit"]["amount"] and consolidated_entry["debit"]["currency"]:
+                    # Get region code from department field (first 3 characters)
+                    dept = consolidated_entry["debit"]["department"]
+                    region_code = dept[:3] if dept and len(dept) >= 3 else ""
+                    
+                    if region_code:
+                        # Get target currency for the region
+                        target_currency = get_region_currency(region_code)
+                        
+                        if target_currency and consolidated_entry["debit"]["currency"] != target_currency:
+                            # Convert amount to target currency
+                            try:
+                                original_amount = float(consolidated_entry["debit"]["amount"])
+                                converted_amount = convert_amount(
+                                    original_amount, 
+                                    consolidated_entry["debit"]["currency"], 
+                                    target_currency
+                                )
+                                logger.info(
+                                    f"Converted debit amount for voucher {voucher_no}: "
+                                    f"{original_amount} {consolidated_entry['debit']['currency']} -> "
+                                    f"{converted_amount} {target_currency}"
+                                )
+                                consolidated_entry["debit"]["amount"] = converted_amount
+                                consolidated_entry["debit"]["original_currency"] = consolidated_entry["debit"]["currency"]
+                                consolidated_entry["debit"]["original_amount"] = original_amount
+                                consolidated_entry["debit"]["currency"] = target_currency
+                            except Exception as e:
+                                logger.warning(
+                                    f"Failed to convert debit amount for voucher {voucher_no}: {str(e)}"
+                                )
+                
+                # For credit entries, we'll consolidate them later
+                consolidated_entries.append(consolidated_entry)
+            
+            # Now create one consolidated credit entry per vendor per voucher
+            if vendor_entries:
+                # Use the first entry as a template for the consolidated credit entry
+                template_entry = vendor_entries[0]
+                
+                # Calculate total credit amount in local currency
+                total_credit_amount = 0
+                credit_currency = None
+                
+                for entry in vendor_entries:
+                    if entry["credit"]["amount"]:
+                        # Get region code from department field (first 3 characters)
+                        dept = entry["credit"]["department"]
+                        region_code = dept[:3] if dept and len(dept) >= 3 else ""
+                        
+                        if region_code:
+                            # Get target currency for the region
+                            target_currency = get_region_currency(region_code)
+                            
+                            if not credit_currency:
+                                credit_currency = target_currency
+                            
+                            if target_currency:
+                                try:
+                                    original_amount = float(entry["credit"]["amount"])
+                                    
+                                    # Convert to target currency if needed
+                                    if entry["credit"]["currency"] != target_currency:
+                                        converted_amount = convert_amount(
+                                            original_amount, 
+                                            entry["credit"]["currency"], 
+                                            target_currency
+                                        )
+                                        logger.info(
+                                            f"Converted credit amount for voucher {voucher_no}: "
+                                            f"{original_amount} {entry['credit']['currency']} -> "
+                                            f"{converted_amount} {target_currency}"
+                                        )
+                                        total_credit_amount += converted_amount
+                                    else:
+                                        total_credit_amount += original_amount
+                                except Exception as e:
+                                    logger.warning(
+                                        f"Failed to convert credit amount for voucher {voucher_no}: {str(e)}"
+                                    )
+                                    # Use original amount as fallback
+                                    try:
+                                        total_credit_amount += float(entry["credit"]["amount"])
+                                    except (ValueError, TypeError):
+                                        pass
+                        else:
+                            # No region code, use original amount
+                            try:
+                                total_credit_amount += float(entry["credit"]["amount"])
+                                if not credit_currency:
+                                    credit_currency = entry["credit"]["currency"]
+                            except (ValueError, TypeError):
+                                pass
+                
+                # Create a consolidated credit entry
+                consolidated_credit_entry = {
+                    "voucher_no": template_entry["voucher_no"],
+                    "transaction_date": template_entry["transaction_date"],
+                    "application_date": template_entry["application_date"],
+                    "journal_generation_date": template_entry["journal_generation_date"],
+                    "description": template_entry["description"],
+                    "note": template_entry["note"],
+                    "receipt_invoice": template_entry["receipt_invoice"],
+                    "debit": {
+                        "marker": "",
+                        "gl_account": "",
+                        "account": "",
+                        "sub_account": "",
+                        "amount": 0,
+                        "currency": "",
+                        "department": "",
+                        "applicant_code": "",
+                        "vendor_code": "",
+                        "free_field": "",
+                        "department_code": ""
+                    },
+                    "credit": {
+                        "marker": template_entry["credit"]["marker"],
+                        "gl_account": template_entry["credit"]["gl_account"],
+                        "account": template_entry["credit"]["account"],
+                        "sub_account": template_entry["credit"]["sub_account"],
+                        "amount": total_credit_amount,
+                        "currency": credit_currency or template_entry["credit"]["currency"],
+                        "department": template_entry["credit"]["department"],
+                        "applicant_code": template_entry["credit"]["applicant_code"],
+                        "vendor_code": vendor_code if vendor_code != "UNKNOWN" else "",
+                        "free_field": template_entry["credit"]["free_field"],
+                        "department_code": template_entry["credit"]["department_code"],
+                        "consolidated": True,
+                        "original_entries_count": len(vendor_entries)
+                    }
+                }
+                
+                # Add a note about consolidation
+                if len(vendor_entries) > 1:
+                    consolidated_credit_entry["credit"]["consolidation_note"] = f"Consolidated from {len(vendor_entries)} entries"
+                
+                consolidated_entries.append(consolidated_credit_entry)
+    
+    return consolidated_entries
 
 
 if __name__ == "__main__":
