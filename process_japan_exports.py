@@ -315,6 +315,11 @@ def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any
         "ShortcutDimCode15": ""
     }
     
+    # Check if this is a debit entry with department VCT.1342G
+    if entry_type == "debit" and entry_data.get("department") == "VCT.1342G":
+        journal_line["ShortcutDimCode14"] = "VCT_TW0001"
+        logger.info(f"Set ShortcutDimCode14 to VCT_TW0001 for debit entry with department VCT.1342G - Voucher: {entry.get('voucher_no', 'Unknown')}")
+    
     return journal_line
 
 

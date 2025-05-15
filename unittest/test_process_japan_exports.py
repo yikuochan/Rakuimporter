@@ -206,6 +206,31 @@ class TestERPIntegration(unittest.TestCase):
         self.assertEqual(journal_line["Shortcut_Dimension_2_Code"], "")
         self.assertEqual(journal_line["ShortcutDimCode4"], "")
 
+    def test_create_journal_line_debit_vct_1342g(self):
+        entry = {
+            "voucher_no": "V003",
+            "description": "Test VCT.1342G Debit Entry",
+            "debit": {
+                "gl_account": "Expense",
+                "account": "6000",
+                "currency": "JPY",
+                "amount": 1000,
+                "department": "VCT.1342G",
+                "applicant_code": "APP01"
+            },
+            "credit": {}
+        }
+        journal_line = erp_script.create_journal_line(entry, "debit")
+        
+        # Check that ShortcutDimCode14 is set to VCT_TW0001
+        self.assertEqual(journal_line["ShortcutDimCode14"], "VCT_TW0001")
+        
+        # Also verify other fields are set correctly
+        self.assertEqual(journal_line["Account_Type"], "Expense")
+        self.assertEqual(journal_line["Account_No"], "6000")
+        self.assertEqual(journal_line["Shortcut_Dimension_1_Code"], "VCT")
+        self.assertEqual(journal_line["Shortcut_Dimension_2_Code"], "VCT.1342G")
+
 
     # Tests for post_journal_line
     @patch('process_japan_exports.requests.post')
