@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 """
-Test script to check how entries with original_currency are processed by process_japan_exports.py
+Test script for processing entries with original_currency and original_amount fields.
 """
 
-import json
 import sys
-from process_japan_exports import create_journal_line
+import json
+from process_japan_exports import create_journal_line, apply_currency_code_rules
 
 def test_process_with_original_currency(json_file):
     """
-    Test how entries with original_currency are processed by process_japan_exports.py
+    Test processing entries with original_currency and original_amount fields.
     
     Args:
-        json_file (str): Path to the JSON file
+        json_file: Path to the JSON file containing entries
     """
     with open(json_file, 'r', encoding='utf-8') as f:
         entries = json.load(f)
@@ -40,6 +40,8 @@ def test_process_with_original_currency(json_file):
             
             # Process the entry using create_journal_line
             debit_line = create_journal_line(entry, "debit")
+            # Apply currency code rules
+            debit_line = apply_currency_code_rules(debit_line)
             
             print(f"  Processed Debit Line:")
             print(f"    Currency_Code: {debit_line.get('Currency_Code', 'Unknown')}")
@@ -47,6 +49,8 @@ def test_process_with_original_currency(json_file):
             
             # Process credit line for comparison
             credit_line = create_journal_line(entry, "credit")
+            # Apply currency code rules
+            credit_line = apply_currency_code_rules(credit_line)
             
             print(f"  Processed Credit Line:")
             print(f"    Currency_Code: {credit_line.get('Currency_Code', 'Unknown')}")

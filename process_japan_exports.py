@@ -146,13 +146,31 @@ def transform_currency(company_code: str, currency_code: str, amount: float) -> 
         normalized_currency = currency_code[2:]  # Remove "R-" prefix
         logger.info(f"Normalized currency code by removing R- prefix: {currency_code} -> {normalized_currency}")
     
+    # Special case for XEU with VCG (treat XEU as EUR)
+    if company_code == "VCG" and (normalized_currency == "XEU" or normalized_currency == "EUR"):
+        logger.info(f"Transforming currency code for company {company_code}: {currency_code} -> 'R-EUR'")
+        return "R-EUR", amount
+    
     # If the company code exists in our mapping
     if company_code in company_currency_map:
         target_currency = company_currency_map[company_code]
         
-        # If the currency already matches the target, just return empty string and original amount
+        # If the currency already matches the target
         if normalized_currency == target_currency:
             logger.info(f"Transforming currency code for company {company_code}: {currency_code} -> ''")
+            
+            # New requirement: Add R- prefix for specific currencies
+            if normalized_currency == "USD":
+                logger.info(f"Adding R- prefix to USD: '' -> 'R-USD'")
+                return "R-USD", amount
+            elif normalized_currency == "RMB":
+                logger.info(f"Adding R- prefix to RMB: '' -> 'R-RMB'")
+                return "R-RMB", amount
+            elif normalized_currency == "XEU":
+                logger.info(f"Adding R- prefix to XEU: '' -> 'R-EUR'")
+                return "R-EUR", amount
+            
+            # For other currencies, return empty string as before
             return "", amount
         
         # If we have a different currency, convert the amount to the target currency
@@ -161,6 +179,18 @@ def transform_currency(company_code: str, currency_code: str, amount: float) -> 
                 # Convert amount to target currency
                 converted_amount = convert_amount(amount, normalized_currency, target_currency)
                 logger.info(f"Converted {amount} {currency_code} to {converted_amount:.2f} {target_currency} for company {company_code}")
+                
+                # Apply the same currency code transformation rules after conversion
+                if target_currency == "USD":
+                    logger.info(f"Adding R- prefix to USD after conversion: '' -> 'R-USD'")
+                    return "R-USD", converted_amount
+                elif target_currency == "RMB":
+                    logger.info(f"Adding R- prefix to RMB after conversion: '' -> 'R-RMB'")
+                    return "R-RMB", converted_amount
+                elif target_currency == "XEU" or target_currency == "EUR":
+                    logger.info(f"Adding R- prefix to EUR after conversion: '' -> 'R-EUR'")
+                    return "R-EUR", converted_amount
+                
                 # Return empty string for currency code (as it's the home currency) and the converted amount
                 return "", converted_amount
             except Exception as e:
@@ -181,7 +211,8 @@ def transform_currency_code(company_code: str, currency_code: str) -> str:
         currency_code: The original currency code from the JSON
         
     Returns:
-        str: The transformed currency code (empty string if it matches the rule)
+        str: The transformed currency code (empty string if it matches the rule,
+             or R-prefixed version for specific currencies)
     """
     # Define the mapping of company codes to their respective "home" currencies
     # Updated to align with currency_converter.py
@@ -199,10 +230,27 @@ def transform_currency_code(company_code: str, currency_code: str) -> str:
         normalized_currency = currency_code[2:]  # Remove "R-" prefix
         logger.info(f"Normalized currency code by removing R- prefix: {currency_code} -> {normalized_currency}")
     
-    # If the company code exists in our mapping and the currency matches,
-    # return empty string, otherwise return the original currency code
+    # Special case for XEU with VCG (treat XEU as EUR)
+    if company_code == "VCG" and (normalized_currency == "XEU" or normalized_currency == "EUR"):
+        logger.info(f"Transforming currency code for company {company_code}: {currency_code} -> 'R-EUR'")
+        return "R-EUR"
+    
+    # If the company code exists in our mapping and the currency matches
     if company_code in company_currency_map and normalized_currency == company_currency_map[company_code]:
         logger.info(f"Transforming currency code for company {company_code}: {currency_code} -> ''")
+        
+        # New requirement: Add R- prefix for specific currencies
+        if normalized_currency == "USD":
+            logger.info(f"Adding R- prefix to USD: '' -> 'R-USD'")
+            return "R-USD"
+        elif normalized_currency == "RMB":
+            logger.info(f"Adding R- prefix to RMB: '' -> 'R-RMB'")
+            return "R-RMB"
+        elif normalized_currency == "XEU" or normalized_currency == "EUR":
+            logger.info(f"Adding R- prefix to {normalized_currency}: '' -> 'R-EUR'")
+            return "R-EUR"
+        
+        # For other currencies, return empty string as before
         return ""
     
     return currency_code
@@ -290,14 +338,54 @@ def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any
     department = entry_data.get("department", "")
     company_code = department[:3] if department else ""
     
+    # Define the mapping of company codes to their respective "home" currencies
+    # Updated to align with currency_converter.py
+    company_currency_map = {
+        "VCT": "NTD",
+        "VCP": "PHP",  # Removed "R-" prefix
+        "VCA": "USD",  # Removed "R-" prefix
+        "VCG": "EUR",  # Removed "R-" prefix
+        "VCJ": "JPY"
+    }
+    
     # Check if we have original_currency and original_amount fields for debit lines
     if entry_type == "debit" and "original_currency" in entry_data and "original_amount" in entry_data:
         # Use the true original values before any conversion
         currency_to_use = entry_data.get("original_currency", "")
         amount_to_use = entry_data.get("original_amount", original_amount)
         
-        # Apply transform_currency_code to the original currency
-        transformed_currency = transform_currency_code(company_code, currency_to_use)
+        # Special case for XEU (treat XEU as EUR)
+        if currency_to_use == "XEU":
+            if company_code == "VCG":
+                transformed_currency = "R-EUR"
+                logger.info(
+                    f"Special case: Transforming XEU to R-EUR for company VCG - Voucher: {entry.get('voucher_no', 'Unknown')}, "
+                    f"Original Currency: {currency_to_use}, Transformed Currency: {transformed_currency}"
+                )
+            else:
+                transformed_currency = "R-EUR"
+                logger.info(
+                    f"Special case: Transforming XEU to R-EUR - Voucher: {entry.get('voucher_no', 'Unknown')}, "
+                    f"Original Currency: {currency_to_use}, Transformed Currency: {transformed_currency}"
+                )
+        # Special case for RMB (always transform to R-RMB)
+        elif currency_to_use == "RMB":
+            transformed_currency = "R-RMB"
+            logger.info(
+                f"Special case: Transforming RMB to R-RMB - Voucher: {entry.get('voucher_no', 'Unknown')}, "
+                f"Original Currency: {currency_to_use}, Transformed Currency: {transformed_currency}"
+            )
+        # Special case for USD with VCA
+        elif company_code == "VCA" and currency_to_use == "USD":
+            transformed_currency = "R-USD"
+            logger.info(
+                f"Special case: Transforming USD to R-USD for company VCA - Voucher: {entry.get('voucher_no', 'Unknown')}, "
+                f"Original Currency: {currency_to_use}, Transformed Currency: {transformed_currency}"
+            )
+        else:
+            # Apply transform_currency_code to the original currency
+            transformed_currency = transform_currency_code(company_code, currency_to_use)
+        
         converted_amount = amount_to_use  # Use the original amount
         
         logger.info(
@@ -363,6 +451,36 @@ def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any
     return journal_line
 
 
+def apply_currency_code_rules(journal_line: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Apply currency code rules to the journal line payload before sending to BC API.
+    
+    Rules:
+    - USD --> R-USD
+    - RMB --> R-RMB
+    - XEU --> R-EUR
+    
+    Args:
+        journal_line: The journal line payload
+        
+    Returns:
+        The modified journal line payload
+    """
+    currency_code = journal_line.get("Currency_Code", "")
+    
+    if currency_code == "USD":
+        journal_line["Currency_Code"] = "R-USD"
+        logger.info(f"Applied currency code rule: USD --> R-USD")
+    elif currency_code == "RMB":
+        journal_line["Currency_Code"] = "R-RMB"
+        logger.info(f"Applied currency code rule: RMB --> R-RMB")
+    elif currency_code == "XEU":
+        journal_line["Currency_Code"] = "R-EUR"
+        logger.info(f"Applied currency code rule: XEU --> R-EUR")
+    
+    return journal_line
+
+
 def post_journal_line(journal_line: Dict[str, Any], access_token: str) -> Tuple[bool, Dict[str, Any]]:
     """
     Post a journal line to the ERP API.
@@ -374,6 +492,8 @@ def post_journal_line(journal_line: Dict[str, Any], access_token: str) -> Tuple[
     Returns:
         Tuple[bool, Dict[str, Any]]: Success status and response data
     """
+    # Apply currency code rules before posting
+    journal_line = apply_currency_code_rules(journal_line)
     # Extract company code from Shortcut_Dimension_1_Code
     shortcut_dim_code = journal_line.get("Shortcut_Dimension_1_Code", "")
     
