@@ -140,20 +140,26 @@ def transform_currency(company_code: str, currency_code: str, amount: float) -> 
         "VCJ": "JPY"
     }
     
+    # Handle "R-" prefix in currency codes
+    normalized_currency = currency_code
+    if currency_code and currency_code.startswith("R-"):
+        normalized_currency = currency_code[2:]  # Remove "R-" prefix
+        logger.info(f"Normalized currency code by removing R- prefix: {currency_code} -> {normalized_currency}")
+    
     # If the company code exists in our mapping
     if company_code in company_currency_map:
         target_currency = company_currency_map[company_code]
         
         # If the currency already matches the target, just return empty string and original amount
-        if currency_code == target_currency:
+        if normalized_currency == target_currency:
             logger.info(f"Transforming currency code for company {company_code}: {currency_code} -> ''")
             return "", amount
         
         # If we have a different currency, convert the amount to the target currency
-        elif currency_code:
+        elif normalized_currency:
             try:
                 # Convert amount to target currency
-                converted_amount = convert_amount(amount, currency_code, target_currency)
+                converted_amount = convert_amount(amount, normalized_currency, target_currency)
                 logger.info(f"Converted {amount} {currency_code} to {converted_amount:.2f} {target_currency} for company {company_code}")
                 # Return empty string for currency code (as it's the home currency) and the converted amount
                 return "", converted_amount
@@ -187,9 +193,15 @@ def transform_currency_code(company_code: str, currency_code: str) -> str:
         "VCJ": "JPY"
     }
     
+    # Handle "R-" prefix in currency codes
+    normalized_currency = currency_code
+    if currency_code and currency_code.startswith("R-"):
+        normalized_currency = currency_code[2:]  # Remove "R-" prefix
+        logger.info(f"Normalized currency code by removing R- prefix: {currency_code} -> {normalized_currency}")
+    
     # If the company code exists in our mapping and the currency matches,
     # return empty string, otherwise return the original currency code
-    if company_code in company_currency_map and currency_code == company_currency_map[company_code]:
+    if company_code in company_currency_map and normalized_currency == company_currency_map[company_code]:
         logger.info(f"Transforming currency code for company {company_code}: {currency_code} -> ''")
         return ""
     
@@ -206,6 +218,10 @@ def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any
     
     Returns:
         Dict[str, Any]: The journal line payload
+        
+    Note:
+        For debit lines, the transform_currency_code logic is applied to potentially make the currency code empty,
+        but the original amount is kept without conversion, as per business requirements.
     """
     # Get the entry data based on type
     entry_data = entry[entry_type]
@@ -274,18 +290,42 @@ def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any
     department = entry_data.get("department", "")
     company_code = department[:3] if department else ""
     
-    # Get the original currency code
-    original_currency = entry_data.get("currency", "")
+    # Check if we have original_currency and original_amount fields for debit lines
+    if entry_type == "debit" and "original_currency" in entry_data and "original_amount" in entry_data:
+        # Use the true original values before any conversion
+        currency_to_use = entry_data.get("original_currency", "")
+        amount_to_use = entry_data.get("original_amount", original_amount)
+        
+        # Apply transform_currency_code to the original currency
+        transformed_currency = transform_currency_code(company_code, currency_to_use)
+        converted_amount = amount_to_use  # Use the original amount
+        
+        logger.info(
+            f"Using original currency and amount for debit line - Voucher: {entry.get('voucher_no', 'Unknown')}, "
+            f"Original Currency: {currency_to_use}, Original Amount: {amount_to_use}, "
+            f"Transformed Currency: {transformed_currency}"
+        )
+    else:
+        # Get the currency code from the entry data (may be already converted)
+        currency_to_use = entry_data.get("currency", "")
+        
+        # For debit lines without original_currency/original_amount, use existing logic
+        if entry_type == "debit":
+            # Apply transform_currency_code to potentially make currency code empty
+            transformed_currency = transform_currency_code(company_code, currency_to_use)
+            converted_amount = original_amount  # Keep original amount
+        else:
+            # For credit lines, use the existing transformation logic
+            transformed_currency, converted_amount = transform_currency(
+                company_code, 
+                currency_to_use, 
+                abs(original_amount)
+            )
+            # Apply sign based on entry type
+            converted_amount = -converted_amount if entry_type == "credit" else converted_amount
     
-    # Transform the currency code and convert amount based on company code
-    transformed_currency, converted_amount = transform_currency(
-        company_code, 
-        original_currency, 
-        abs(original_amount)
-    )
-    
-    # Apply sign based on entry type
-    amount = converted_amount if entry_type == "debit" else -converted_amount
+    # Use the final amount
+    amount = converted_amount
     
     # Create the journal line payload
     journal_line = {
@@ -445,6 +485,7 @@ def generate_currency_modification_report(entries: List[Dict[str, Any]], output_
             f.write(f"| {mod['voucher_no']} | {mod['line_type']} | {mod['company_code']} | {mod['original_currency']} | {mod['transformed_currency']} |\n")
         
         f.write(f"\n\nTotal modifications: {len(modifications)}\n")
+        f.write(f"\nNote: This report includes all currency code transformations for both debit and credit lines.\n")
     
     logger.info(f"Currency modification report generated: {output_file}")
     return modifications
@@ -464,52 +505,126 @@ def process_entries(entries: List[Dict[str, Any]], access_token: str) -> Tuple[i
     success_count = 0
     failure_count = 0
     
-    for i, entry in enumerate(entries):
-        logger.info(f"Processing entry {i+1}/{len(entries)} - Voucher: {entry.get('voucher_no', 'Unknown')}")
+    # Group entries by voucher number and vendor code
+    entry_groups = {}
+    for entry in entries:
+        voucher_no = entry.get('voucher_no', 'Unknown')
+        vendor_code = entry.get('credit', {}).get('vendor_code', '')
         
-        # Check if this is a consolidated credit entry (with consolidated flag)
-        is_consolidated_credit = entry["credit"].get("consolidated", False)
-        
-        # Process debit line if this is not a consolidated credit-only entry
-        # We check if debit amount exists because consolidated entries might have empty debit section
-        if not is_consolidated_credit or (entry["debit"] and entry["debit"].get("amount")):
-            debit_line = create_journal_line(entry, "debit")
-            logger.info(f"Posting debit line for voucher {entry.get('voucher_no', 'Unknown')}")
-            debit_success, debit_response = post_journal_line(debit_line, access_token)
+        if not vendor_code:
+            # If no vendor code, just process as individual entry
+            if voucher_no not in entry_groups:
+                entry_groups[voucher_no] = {}
+            if 'individual' not in entry_groups[voucher_no]:
+                entry_groups[voucher_no]['individual'] = []
+            entry_groups[voucher_no]['individual'].append(entry)
+        else:
+            # Group by vendor code
+            if voucher_no not in entry_groups:
+                entry_groups[voucher_no] = {}
+            if vendor_code not in entry_groups[voucher_no]:
+                entry_groups[voucher_no][vendor_code] = []
+            entry_groups[voucher_no][vendor_code].append(entry)
+    
+    # Process each group
+    for voucher_no, vendor_groups in entry_groups.items():
+        for vendor_code, group_entries in vendor_groups.items():
+            # Skip entries that are marked as consolidated but have empty debit
+            # These are the consolidated credit entries we'll generate ourselves
+            valid_entries = [e for e in group_entries if e["debit"] and e["debit"].get("amount")]
             
-            if debit_success:
-                logger.info(f"Successfully posted debit line for voucher {entry.get('voucher_no', 'Unknown')}")
-                success_count += 1
+            if not valid_entries:
+                continue
+                
+            # If only one valid entry in the group, process it normally
+            if len(valid_entries) == 1 and not valid_entries[0]["credit"].get("consolidated", False):
+                entry = valid_entries[0]
+                logger.info(f"Processing single entry - Voucher: {entry.get('voucher_no', 'Unknown')}")
+                
+                # Process debit line
+                debit_line = create_journal_line(entry, "debit")
+                logger.info(f"Posting debit line for voucher {entry.get('voucher_no', 'Unknown')}")
+                debit_success, debit_response = post_journal_line(debit_line, access_token)
+                
+                if debit_success:
+                    logger.info(f"Successfully posted debit line for voucher {entry.get('voucher_no', 'Unknown')}")
+                    success_count += 1
+                else:
+                    logger.error(f"Failed to post debit line for voucher {entry.get('voucher_no', 'Unknown')}")
+                    failure_count += 1
+                
+                # Small delay between requests to avoid rate limiting
+                time.sleep(0.5)
+                
+                # Process credit line
+                credit_line = create_journal_line(entry, "credit")
+                logger.info(f"Posting credit line for voucher {entry.get('voucher_no', 'Unknown')}")
+                credit_success, credit_response = post_journal_line(credit_line, access_token)
+                
+                if credit_success:
+                    logger.info(f"Successfully posted credit line for voucher {entry.get('voucher_no', 'Unknown')}")
+                    success_count += 1
+                else:
+                    logger.error(f"Failed to post credit line for voucher {entry.get('voucher_no', 'Unknown')}")
+                    failure_count += 1
+                
+                # Small delay between entries
+                time.sleep(0.5)
             else:
-                logger.error(f"Failed to post debit line for voucher {entry.get('voucher_no', 'Unknown')}")
-                failure_count += 1
-            
-            # Small delay between requests to avoid rate limiting
-            time.sleep(0.5)
-        else:
-            logger.info(f"Skipping debit line for consolidated credit entry - Voucher: {entry.get('voucher_no', 'Unknown')}")
-        
-        # Process credit line
-        credit_line = create_journal_line(entry, "credit")
-        
-        # Add logging for consolidated credit entries
-        if is_consolidated_credit:
-            logger.info(f"Posting consolidated credit line for voucher {entry.get('voucher_no', 'Unknown')} - " +
-                       f"Consolidated from {entry['credit'].get('original_entries_count', 1)} entries")
-        else:
-            logger.info(f"Posting credit line for voucher {entry.get('voucher_no', 'Unknown')}")
-            
-        credit_success, credit_response = post_journal_line(credit_line, access_token)
-        
-        if credit_success:
-            logger.info(f"Successfully posted credit line for voucher {entry.get('voucher_no', 'Unknown')}")
-            success_count += 1
-        else:
-            logger.error(f"Failed to post credit line for voucher {entry.get('voucher_no', 'Unknown')}")
-            failure_count += 1
-        
-        # Small delay between entries
-        time.sleep(0.5)
+                # Process multiple entries with consolidated credit
+                logger.info(f"Processing {len(valid_entries)} entries with consolidated credit - Voucher: {voucher_no}")
+                
+                # Process all debit lines
+                for i, entry in enumerate(valid_entries):
+                    debit_line = create_journal_line(entry, "debit")
+                    logger.info(f"Posting debit line {i+1}/{len(valid_entries)} for voucher {voucher_no}")
+                    debit_success, debit_response = post_journal_line(debit_line, access_token)
+                    
+                    if debit_success:
+                        logger.info(f"Successfully posted debit line for voucher {voucher_no}")
+                        success_count += 1
+                    else:
+                        logger.error(f"Failed to post debit line for voucher {voucher_no}")
+                        failure_count += 1
+                    
+                    # Small delay between requests to avoid rate limiting
+                    time.sleep(0.5)
+                
+                # Find the consolidated credit entry if it exists
+                consolidated_entry = next((e for e in group_entries if e["credit"].get("consolidated", False)), None)
+                
+                if consolidated_entry:
+                    # Use the existing consolidated credit entry
+                    credit_line = create_journal_line(consolidated_entry, "credit")
+                    logger.info(f"Posting consolidated credit line for voucher {voucher_no} - " +
+                               f"Consolidated from {consolidated_entry['credit'].get('original_entries_count', len(valid_entries))} entries")
+                else:
+                    # Create a new consolidated credit entry from the first entry
+                    # Sum up all debit amounts
+                    total_amount = sum(e["debit"].get("amount", 0) for e in valid_entries)
+                    
+                    # Use the first entry as a template
+                    template_entry = valid_entries[0].copy()
+                    template_entry["credit"]["amount"] = total_amount
+                    template_entry["credit"]["consolidated"] = True
+                    template_entry["credit"]["original_entries_count"] = len(valid_entries)
+                    template_entry["credit"]["consolidation_note"] = f"Consolidated from {len(valid_entries)} entries"
+                    
+                    credit_line = create_journal_line(template_entry, "credit")
+                    logger.info(f"Posting new consolidated credit line for voucher {voucher_no} - " +
+                               f"Consolidated from {len(valid_entries)} entries")
+                
+                credit_success, credit_response = post_journal_line(credit_line, access_token)
+                
+                if credit_success:
+                    logger.info(f"Successfully posted consolidated credit line for voucher {voucher_no}")
+                    success_count += 1
+                else:
+                    logger.error(f"Failed to post consolidated credit line for voucher {voucher_no}")
+                    failure_count += 1
+                
+                # Small delay between entries
+                time.sleep(0.5)
     
     return success_count, failure_count
 
