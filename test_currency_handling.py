@@ -47,7 +47,8 @@ class TestCurrencyHandling(unittest.TestCase):
         debit_line = create_journal_line(test_entry, "debit")
         
         # Check that the original currency and amount are used
-        self.assertEqual(debit_line["Currency_Code"], transform_currency_code("VCT", "XEU"))
+        # XEU is now always transformed to R-EUR
+        self.assertEqual(debit_line["Currency_Code"], "R-EUR")
         self.assertEqual(debit_line["Amount"], 260.0)
         
         # Create a test entry without original_currency and original_amount
@@ -102,6 +103,16 @@ class TestCurrencyHandling(unittest.TestCase):
         # Test with R- prefix
         self.assertEqual(transform_currency_code("VCT", "R-NTD"), "")
         self.assertEqual(transform_currency_code("VCP", "R-PHP"), "")
+        
+        # Test new currency code conversion rules
+        self.assertEqual(transform_currency_code("VCA", "USD"), "R-USD")
+        self.assertEqual(transform_currency_code("VCT", "RMB"), "RMB")  # Not a home currency for VCT
+        
+        # Test EUR with VCG - should return R-EUR
+        self.assertEqual(transform_currency_code("VCG", "EUR"), "R-EUR")
+        
+        # Test with specific currencies that should get R- prefix
+        self.assertEqual(transform_currency_code("VCA", "R-USD"), "R-USD")  # Already has R- prefix
 
 if __name__ == "__main__":
     unittest.main()
