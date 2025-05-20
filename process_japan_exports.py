@@ -21,6 +21,10 @@ import sys
 import time
 from typing import Dict, List, Any, Optional, Tuple
 
+# Force reset the logging configuration
+for handler in logging.root.handlers[:]:
+    logging.root.removeHandler(handler)
+
 import certifi
 import requests
 import urllib3
@@ -44,16 +48,40 @@ except ImportError:
             return default
         return value
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler("erp_api_integration.log"),
-        logging.StreamHandler(sys.stdout)
-    ]
-)
-logger = logging.getLogger("erp_api_integration")
+def setup_logging():
+    """Set up logging with both file and console handlers."""
+    # Remove any existing handlers
+    for handler in logging.root.handlers[:]:
+        logging.root.removeHandler(handler)
+    
+    # Create logger
+    logger = logging.getLogger("erp_api_integration")
+    logger.setLevel(logging.INFO)
+    logger.handlers = []  # Remove any existing handlers
+    
+    # Create handlers
+    try:
+        file_handler = logging.FileHandler("erp_api_integration.log")
+        # Create formatter
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        file_handler.setFormatter(formatter)
+        # Add file handler to logger
+        logger.addHandler(file_handler)
+        logger.info("File logging handler initialized successfully")
+    except Exception as e:
+        print(f"Error setting up log file: {str(e)}")
+        print("Falling back to console-only logging")
+    
+    # Always add console handler
+    console_handler = logging.StreamHandler(sys.stdout)
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+    
+    return logger
+
+# Set up logging
+logger = setup_logging()
 
 # API Configuration from environment variables
 TOKEN_URL = get_env_var(
@@ -176,8 +204,8 @@ def transform_currency(company_code: str, currency_code: str, amount: float) -> 
         # If we have a different currency, convert the amount to the target currency
         elif normalized_currency:
             try:
-                # Convert amount to target currency
-                converted_amount = convert_amount(amount, normalized_currency, target_currency)
+                # Convert amount to target currency, passing company_code
+                converted_amount = convert_amount(amount, normalized_currency, target_currency, company_code=company_code)
                 logger.info(f"Converted {amount} {currency_code} to {converted_amount:.2f} {target_currency} for company {company_code}")
                 
                 # Apply the same currency code transformation rules after conversion
