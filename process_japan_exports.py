@@ -451,34 +451,8 @@ def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any
     return journal_line
 
 
-def apply_currency_code_rules(journal_line: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Apply currency code rules to the journal line payload before sending to BC API.
-    
-    Rules:
-    - USD --> R-USD
-    - RMB --> R-RMB
-    - XEU --> R-EUR
-    
-    Args:
-        journal_line: The journal line payload
-        
-    Returns:
-        The modified journal line payload
-    """
-    currency_code = journal_line.get("Currency_Code", "")
-    
-    if currency_code == "USD":
-        journal_line["Currency_Code"] = "R-USD"
-        logger.info(f"Applied currency code rule: USD --> R-USD")
-    elif currency_code == "RMB":
-        journal_line["Currency_Code"] = "R-RMB"
-        logger.info(f"Applied currency code rule: RMB --> R-RMB")
-    elif currency_code == "XEU":
-        journal_line["Currency_Code"] = "R-EUR"
-        logger.info(f"Applied currency code rule: XEU --> R-EUR")
-    
-    return journal_line
+# The apply_currency_code_rules function has been removed as part of the refactoring
+# Currency code rules are now handled in exchange_rate_query.py
 
 
 def post_journal_line(journal_line: Dict[str, Any], access_token: str) -> Tuple[bool, Dict[str, Any]]:
@@ -492,8 +466,9 @@ def post_journal_line(journal_line: Dict[str, Any], access_token: str) -> Tuple[
     Returns:
         Tuple[bool, Dict[str, Any]]: Success status and response data
     """
-    # Apply currency code rules before posting
-    journal_line = apply_currency_code_rules(journal_line)
+    # Currency code rules application is now skipped as it's handled in exchange_rate_query.py
+    logger.info(f"Currency code rules application skipped as per refactoring")
+    
     # Extract company code from Shortcut_Dimension_1_Code
     shortcut_dim_code = journal_line.get("Shortcut_Dimension_1_Code", "")
     

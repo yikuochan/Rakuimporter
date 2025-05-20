@@ -5,7 +5,26 @@ Test script for processing entries with original_currency and original_amount fi
 
 import sys
 import json
-from process_japan_exports import create_journal_line, apply_currency_code_rules
+import os
+import logging
+from unittest.mock import patch
+
+# Set required environment variables for testing
+os.environ["ERP_CLIENT_ID"] = "test_client_id"
+os.environ["ERP_CLIENT_SECRET"] = "test_client_secret"
+
+# Now import from process_japan_exports
+from process_japan_exports import create_journal_line
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger("test_process")
 
 def test_process_with_original_currency(json_file):
     """
@@ -40,8 +59,9 @@ def test_process_with_original_currency(json_file):
             
             # Process the entry using create_journal_line
             debit_line = create_journal_line(entry, "debit")
-            # Apply currency code rules
-            debit_line = apply_currency_code_rules(debit_line)
+            # Note: apply_currency_code_rules has been removed as part of refactoring
+            # Currency code rules are now handled in exchange_rate_query.py
+            logger.info("Currency code rules application skipped as per refactoring")
             
             print(f"  Processed Debit Line:")
             print(f"    Currency_Code: {debit_line.get('Currency_Code', 'Unknown')}")
@@ -49,8 +69,9 @@ def test_process_with_original_currency(json_file):
             
             # Process credit line for comparison
             credit_line = create_journal_line(entry, "credit")
-            # Apply currency code rules
-            credit_line = apply_currency_code_rules(credit_line)
+            # Note: apply_currency_code_rules has been removed as part of refactoring
+            # Currency code rules are now handled in exchange_rate_query.py
+            logger.info("Currency code rules application skipped as per refactoring")
             
             print(f"  Processed Credit Line:")
             print(f"    Currency_Code: {credit_line.get('Currency_Code', 'Unknown')}")

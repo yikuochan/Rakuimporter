@@ -48,13 +48,11 @@ def normalize_currency(currency):
         str: The normalized currency value
     """
     if currency == "台湾ドル":
+        logger.info(f"Normalizing currency: '台湾ドル' -> 'NTD'")
         return "NTD"
     elif currency == "円":
+        logger.info(f"Normalizing currency: '円' -> 'JPY'")
         return "JPY"
-    elif currency == "CNY":
-        return "R-RMB"
-    elif currency == "R-CNY":
-        return "R-RMB"
     else:
         return currency
 

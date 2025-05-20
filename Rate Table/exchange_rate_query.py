@@ -1,118 +1,79 @@
-import pandas as pd
+import logging
+from env_config import get_env_var
 
-def get_exchange_rate(from_currency, to_currency, file_path="Standard-Exchange-rate-for-Apr-2025.xlsx", sheet_name="25 Apr for BS", debug=False):
+# Configure logging
+logger = logging.getLogger("erp_api_integration")
+
+# Import the API client
+try:
+    from exchange_rate_api import ExchangeRateAPI
+    api_client = ExchangeRateAPI()
+    api_available = True
+except ImportError:
+    logger.error("ExchangeRateAPI not available. Cannot retrieve exchange rates.")
+    api_available = False
+
+# Check if we should use the API
+USE_API = get_env_var("USE_EXCHANGE_RATE_API", default="True", as_type=bool)
+DEFAULT_COMPANY = get_env_var("BC_COMPANY", default="VCJ")
+
+def get_exchange_rate(from_currency, to_currency, debug=False, **kwargs):
     """
-    Get the exchange rate between two currencies from the Excel file.
+    Get the exchange rate between two currencies using the Business Central API.
     
     Parameters:
     from_currency (str): The source currency code
     to_currency (str): The target currency code
-    file_path (str): Path to the Excel file
-    sheet_name (str): Name of the sheet containing exchange rates
     debug (bool): Whether to print debug information
+    **kwargs: Additional parameters (ignored, kept for backward compatibility)
     
     Returns:
     float: The exchange rate from source to target currency
+    
+    Raises:
+    Exception: If the API is not available or fails to retrieve the exchange rate
     """
+    # If currencies are the same, return 1.0
+    if from_currency == to_currency:
+        return 1.0
+    
+    # Check if API is enabled and available
+    if not USE_API:
+        raise Exception("Exchange Rate API is disabled. Enable it by setting USE_EXCHANGE_RATE_API=True in .env file.")
+    
+    if not api_available:
+        raise Exception("Exchange Rate API is not available. Check if exchange_rate_api.py is properly installed.")
+    
     try:
-        # Read the Excel file
-        df = pd.read_excel(file_path, sheet_name=sheet_name, header=None)
+        if debug:
+            logger.debug(f"Attempting to get exchange rate from API: {from_currency} to {to_currency}")
+        
+        # Get company name from environment variable or use default
+        company_name = DEFAULT_COMPANY
+        
+        # Call the API client
+        rate = api_client.get_exchange_rate(from_currency, to_currency, company_name)
         
         if debug:
-            print(f"Excel file loaded successfully: {file_path}, sheet: {sheet_name}")
-        
-        # Get currency codes from column and row
-        currency_codes_col = df.iloc[1:, 2]  # Third column (currency codes)
-        currency_symbols_row = df.iloc[1, 3:]  # Third row (currency symbols/names)
-        
-        if debug:
-            print(f"Currency codes in column: {list(currency_codes_col)}")
-            print(f"Currency symbols in row: {list(currency_symbols_row)}")
-        
-        # Create a mapping of currency codes to their row indices
-        currency_row_indices = {}
-        for idx, code in enumerate(currency_codes_col):
-            if pd.notna(code):
-                currency_row_indices[str(code).strip()] = idx + 1  # +1 because we skipped the header row
-        
-        # Find the row index for from_currency
-        if from_currency not in currency_row_indices:
-            raise ValueError(f"Source currency '{from_currency}' not found in the exchange rate table")
-        
-        from_idx = currency_row_indices[from_currency]
-        
-        if debug:
-            print(f"Found source currency '{from_currency}' at row index {from_idx}")
-            print(f"Looking for target currency '{to_currency}' in column indices")
-        
-        # Find the column index for to_currency
-        # First, check if the target currency is directly in the row
-        to_idx = None
-        for idx, symbol in enumerate(currency_symbols_row):
-            if pd.notna(symbol) and to_currency in str(symbol):
-                to_idx = idx + 3  # +3 because we skipped the header row and first three columns
-                break
-        
-        # If not found directly, look for the target currency in the column and find its corresponding symbol in the row
-        if to_idx is None and to_currency in currency_row_indices:
-            target_row_idx = currency_row_indices[to_currency]
-            # Get the currency code at this row
-            target_currency_code = df.iloc[target_row_idx, 2]
-            
-            if debug:
-                print(f"Target currency '{to_currency}' found in column at row {target_row_idx}")
-                print(f"Looking for corresponding symbol in row")
-            
-            # Now find the column index where this currency appears in the header row
-            for idx, code in enumerate(df.iloc[0, 3:]):
-                if pd.notna(code) and target_currency_code in str(code):
-                    to_idx = idx + 3
-                    break
-        
-        if to_idx is None:
-            # As a last resort, try to find the column by matching the currency code position
-            # This assumes the currencies in the row match the order of currencies in the column
-            if to_currency in currency_row_indices:
-                position = list(currency_row_indices.keys()).index(to_currency)
-                if position < len(currency_symbols_row):
-                    to_idx = position + 3
-        
-        if to_idx is None:
-            raise ValueError(f"Target currency '{to_currency}' not found in the exchange rate table")
-        
-        if debug:
-            print(f"Found target currency '{to_currency}' at column index {to_idx}")
-        
-        # Get the exchange rate at the intersection
-        rate = df.iloc[from_idx, to_idx]
-        
-        if debug:
-            print(f"Exchange rate at intersection: {rate}")
-        
-        # Check if the rate is valid
-        if pd.isna(rate) or rate == 0:
-            raise ValueError(f"No valid exchange rate found between {from_currency} and {to_currency}")
+            logger.debug(f"API returned exchange rate: {rate}")
             
         return rate
         
-    except Exception as e:
-        # Handle file not found, sheet not found, etc.
-        if debug:
-            import traceback
-            print(f"Error details: {traceback.format_exc()}")
-        raise Exception(f"Error retrieving exchange rate: {str(e)}")
+    except Exception as api_error:
+        # Log the API error and re-raise
+        logger.error(f"API error: {str(api_error)}")
+        raise Exception(f"Error retrieving exchange rate from API: {str(api_error)}")
 
 
 # Example usage
 if __name__ == "__main__":
     try:
         # Example: Get exchange rate from USD to EUR
-        # Replace with actual currency codes from your Excel file
         rate = get_exchange_rate("USD", "EUR")
         print(f"Exchange rate from USD to EUR: {rate}")
         
-        # You can also specify a different file path or sheet name
-        # rate = get_exchange_rate("USD", "EUR", file_path="path/to/your/file.xlsx", sheet_name="Sheet1")
+        # You can also enable debug output
+        # rate = get_exchange_rate("USD", "EUR", debug=True)
         
     except Exception as e:
         print(f"Error: {e}")
