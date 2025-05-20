@@ -13,7 +13,7 @@ from exchange_rate_query import get_exchange_rate
 # Configure logging
 logger = logging.getLogger("erp_api_integration")
 
-def convert_amount(amount, from_currency, to_currency, excel_path=None):
+def convert_amount(amount, from_currency, to_currency, company_code=None, excel_path=None):
     """
     Convert an amount from one currency to another using exchange rates.
     
@@ -21,6 +21,7 @@ def convert_amount(amount, from_currency, to_currency, excel_path=None):
         amount (float): The amount to convert
         from_currency (str): Source currency code
         to_currency (str): Target currency code
+        company_code (str, optional): Company code to use for exchange rate lookup
         excel_path (str, optional): Path to the exchange rate Excel file
         
     Returns:
@@ -40,8 +41,8 @@ def convert_amount(amount, from_currency, to_currency, excel_path=None):
         from_curr = from_currency.replace('R-', '') if from_currency.startswith('R-') else from_currency
         to_curr = to_currency.replace('R-', '') if to_currency.startswith('R-') else to_currency
         
-        # Get exchange rate and convert amount
-        rate = get_exchange_rate(from_curr, to_curr, **kwargs)
+        # Get exchange rate and convert amount, passing company_code
+        rate = get_exchange_rate(from_curr, to_curr, company_name=company_code, **kwargs)
         converted = amount * rate
         
         logger.info(f"Converted {amount} {from_currency} to {converted:.2f} {to_currency} (rate: {rate})")

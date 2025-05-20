@@ -305,7 +305,8 @@ def consolidate_entries(entries):
                                 converted_amount = convert_amount(
                                     original_amount, 
                                     consolidated_entry["debit"]["currency"], 
-                                    target_currency
+                                    target_currency,
+                                    company_code=region_code  # Pass region_code as company_code
                                 )
                                 logger.info(
                                     f"Converted debit amount for voucher {voucher_no}: "
@@ -355,7 +356,8 @@ def consolidate_entries(entries):
                                         converted_amount = convert_amount(
                                             original_amount, 
                                             entry["credit"]["currency"], 
-                                            target_currency
+                                            target_currency,
+                                            company_code=region_code  # Pass region_code as company_code
                                         )
                                         logger.info(
                                             f"Converted credit amount for voucher {voucher_no}: "
