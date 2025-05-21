@@ -25,11 +25,13 @@ def convert_amount(amount, from_currency, to_currency, company_code=None, excel_
         excel_path (str, optional): Path to the exchange rate Excel file
         
     Returns:
-        float: The converted amount
+        tuple: (converted_amount, success_flag)
+            - converted_amount (float): The converted amount or original amount if conversion failed
+            - success_flag (bool): True if conversion was successful, False otherwise
     """
     # If currencies are the same or either is empty, no conversion needed
     if from_currency == to_currency or not from_currency or not to_currency:
-        return amount
+        return amount, True
     
     try:
         # Prepare arguments for get_exchange_rate
@@ -46,12 +48,13 @@ def convert_amount(amount, from_currency, to_currency, company_code=None, excel_
         converted = amount * rate
         
         logger.info(f"Converted {amount} {from_currency} to {converted:.2f} {to_currency} (rate: {rate})")
-        return converted
+        return converted, True
         
     except Exception as e:
-        logger.warning(f"Failed to convert {amount} from {from_currency} to {to_currency}: {str(e)}")
-        # Return original amount if conversion fails
-        return amount
+        error_msg = f"Failed to convert {amount} from {from_currency} to {to_currency}: {str(e)}"
+        logger.warning(error_msg)
+        # Return original amount and False flag if conversion fails
+        return amount, False
 
 def get_region_currency(region_code):
     """
