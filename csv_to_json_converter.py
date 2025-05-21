@@ -6,15 +6,23 @@ This script converts a General Journal CSV file to JSON format.
 It processes the CSV file with a two-line header and pairs of debit/credit entries,
 converting them into a structured JSON format.
 
+The script can also handle CSV files with line breaks within quoted fields,
+which can cause parsing errors. It can automatically fix these issues by replacing
+line breaks with spaces or another specified character.
+
 Usage:
-    python csv_to_json_converter.py -i INPUT_CSV_FILE [-o OUTPUT_JSON_FILE]
+    python csv_to_json_converter.py -i INPUT_CSV_FILE [-o OUTPUT_JSON_FILE] [--no-fix-line-breaks] [--line-break-replacement CHAR]
 
 Arguments:
-    -i, --input    Input CSV file path (required)
-    -o, --output   Output JSON file path (optional, defaults to input_filename.json)
+    -i, --input                Input CSV file path (required)
+    -o, --output               Output JSON file path (optional, defaults to input_filename.json)
+    --no-fix-line-breaks       Disable fixing line breaks in CSV fields (enabled by default)
+    --line-break-replacement   Character to replace line breaks with (default: space)
+    --max-desc-length          Maximum length for description field (default: 100)
 
 Example:
     python csv_to_json_converter.py -i "Raku export.csv" -o "journal_entries.json"
+    python csv_to_json_converter.py -i "Problematic export.csv" --line-break-replacement "|"
 """
 
 import csv
@@ -24,18 +32,87 @@ import argparse
 import sys
 import logging
 import collections
+import os
+import tempfile
 from currency_converter import convert_amount, get_region_currency
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler("csv_conversion.log"),
-        logging.StreamHandler(sys.stdout)
-    ]
-)
+# Reset any existing handlers to avoid duplicates
+for handler in logging.root.handlers[:]:
+    logging.root.removeHandler(handler)
+
+# Create logger
 logger = logging.getLogger("csv_converter")
+logger.setLevel(logging.INFO)
+logger.handlers = []  # Remove any existing handlers
+
+# Create file handler
+file_handler = logging.FileHandler("csv_conversion.log", mode='w')
+file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+file_handler.setFormatter(file_formatter)
+logger.addHandler(file_handler)
+
+# Create console handler
+console_handler = logging.StreamHandler(sys.stdout)
+console_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+console_handler.setFormatter(console_formatter)
+logger.addHandler(console_handler)
+
+# Add a startup message to verify logging is working
+logger.info("CSV to JSON converter started")
+
+def fix_csv_line_breaks(input_file, output_file=None, replacement=' '):
+    """
+    Fix CSV file by replacing line breaks within fields with the specified replacement character.
+    
+    Args:
+        input_file (str): Path to the input CSV file
+        output_file (str, optional): Path to the output CSV file. If None, returns the fixed content as a string.
+        replacement (str): Character to replace line breaks with (default: space)
+        
+    Returns:
+        str or bool: If output_file is None, returns the fixed content as a string.
+                    Otherwise, returns True if successful, False if an error occurred.
+    """
+    try:
+        # Open the input file with proper newline handling
+        with open(input_file, 'r', encoding='utf-8', newline='') as infile:
+            # Create a CSV reader that can handle quoted fields with line breaks
+            reader = csv.reader(infile, quotechar='"', delimiter=',', quoting=csv.QUOTE_MINIMAL)
+            
+            # Process each row
+            fixed_rows = []
+            for row in reader:
+                # Replace line breaks within each field
+                cleaned_row = [field.replace('\n', replacement).replace('\r', '') for field in row]
+                fixed_rows.append(cleaned_row)
+            
+            # If output_file is provided, write to file
+            if output_file:
+                with open(output_file, 'w', encoding='utf-8', newline='') as outfile:
+                    writer = csv.writer(outfile, quotechar='"', delimiter=',', quoting=csv.QUOTE_MINIMAL)
+                    writer.writerows(fixed_rows)
+                logger.info(f"Fixed line breaks in {input_file} and saved to {output_file}")
+                return True
+            else:
+                # Return the fixed content as a string
+                output = io.StringIO()
+                writer = csv.writer(output, quotechar='"', delimiter=',', quoting=csv.QUOTE_MINIMAL)
+                writer.writerows(fixed_rows)
+                return output.getvalue()
+    
+    except Exception as e:
+        error_msg = f"Error fixing line breaks in CSV file: {e}"
+        logger.error(error_msg)
+        if output_file:
+            return False
+        else:
+            # Return the original content if there's an error
+            try:
+                with open(input_file, 'r', encoding='utf-8') as infile:
+                    return infile.read()
+            except Exception:
+                return ""
 
 def normalize_currency(currency):
     """
@@ -79,17 +156,54 @@ def truncate_description(description, max_length=100):
         return truncated
     return description
 
-def convert_csv_to_json(csv_file_path, json_file_path, max_desc_length=100):
+def convert_csv_to_json(csv_file_path, json_file_path, max_desc_length=100, fix_line_breaks=True, line_break_replacement=' '):
     """
     Convert a General Journal CSV file to JSON format.
     
     Args:
         csv_file_path (str): Path to the input CSV file
         json_file_path (str): Path to the output JSON file
+        max_desc_length (int): Maximum length for description field
+        fix_line_breaks (bool): Whether to fix line breaks in CSV fields
+        line_break_replacement (str): Character to replace line breaks with
     """
+    # Check if we need to fix line breaks in the CSV file
+    if fix_line_breaks:
+        logger.info(f"Checking for line breaks in CSV file: {csv_file_path}")
+        try:
+            # Create a temporary file for the fixed CSV content
+            with tempfile.NamedTemporaryFile(mode='w+', encoding='utf-8', delete=False, suffix='.csv') as temp_file:
+                temp_csv_path = temp_file.name
+                
+            # Fix line breaks in the CSV file
+            fix_csv_line_breaks(csv_file_path, temp_csv_path, line_break_replacement)
+            logger.info(f"Fixed CSV file saved to temporary file: {temp_csv_path}")
+            
+            # Use the fixed CSV file for processing
+            csv_file_to_process = temp_csv_path
+        except Exception as e:
+            logger.error(f"Error fixing line breaks in CSV file: {e}")
+            logger.warning("Proceeding with original CSV file")
+            csv_file_to_process = csv_file_path
+    else:
+        # Use the original CSV file
+        csv_file_to_process = csv_file_path
+    
     # Read the CSV file with proper encoding
-    with open(csv_file_path, 'r', encoding='utf-8') as file:
-        content = file.read()
+    try:
+        with open(csv_file_to_process, 'r', encoding='utf-8') as file:
+            content = file.read()
+            
+        # Clean up temporary file if it was created
+        if fix_line_breaks and 'temp_csv_path' in locals():
+            try:
+                os.remove(temp_csv_path)
+                logger.info(f"Removed temporary CSV file: {temp_csv_path}")
+            except Exception as e:
+                logger.warning(f"Failed to remove temporary CSV file: {e}")
+    except Exception as e:
+        logger.error(f"Error reading CSV file: {e}")
+        raise
     
     # Split the content into lines
     lines = content.splitlines()
@@ -131,9 +245,11 @@ def convert_csv_to_json(csv_file_path, json_file_path, max_desc_length=100):
             "transaction_date": debit_data.get("仕訳日") or credit_data.get("仕訳日") or "",
             "application_date": debit_data.get("申請日") or credit_data.get("申請日") or "",
             "journal_generation_date": debit_data.get("仕訳データ生成日") or credit_data.get("仕訳データ生成日") or "",
-            "description": truncate_description(debit_data.get("摘要") or credit_data.get("摘要") or "", max_desc_length),
+            "description": truncate_description(debit_data.get("Receipt/Invoice Note(明細)") or credit_data.get("Receipt/Invoice Note(明細)") or "", max_desc_length),
             "note": debit_data.get("Note(明細)") or credit_data.get("Note(明細)") or "",
             "receipt_invoice": debit_data.get("Receipt/Invoice #(明細)") or credit_data.get("Receipt/Invoice #(明細)") or "",
+            "External_Document_No": debit_data.get("Receipt/Invoice No.(明細)") or credit_data.get("Receipt/Invoice No.(明細)") or debit_data.get("仕訳日") or credit_data.get("仕訳日") or "",
+            "Document_Date": debit_data.get("仕訳日") or credit_data.get("仕訳日") or "",
             "debit": {
                 "marker": debit_data.get("勘定奉行：伝票区切") or "",
                 "gl_account": debit_data.get("G/L Account") or "",
@@ -284,6 +400,8 @@ def consolidate_entries(entries):
                     "description": entry["description"],
                     "note": entry["note"],
                     "receipt_invoice": entry["receipt_invoice"],
+                    "External_Document_No": entry["External_Document_No"],
+                    "Document_Date": entry["Document_Date"],
                     "debit": entry["debit"].copy(),
                     "credit": entry["credit"].copy()
                 }
@@ -302,24 +420,34 @@ def consolidate_entries(entries):
                             # Convert amount to target currency
                             try:
                                 original_amount = float(consolidated_entry["debit"]["amount"])
-                                converted_amount = convert_amount(
+                                converted_amount, success = convert_amount(
                                     original_amount, 
                                     consolidated_entry["debit"]["currency"], 
                                     target_currency,
                                     company_code=region_code  # Pass region_code as company_code
                                 )
-                                logger.info(
-                                    f"Converted debit amount for voucher {voucher_no}: "
-                                    f"{original_amount} {consolidated_entry['debit']['currency']} -> "
-                                    f"{converted_amount} {target_currency}"
-                                )
-                                consolidated_entry["debit"]["amount"] = converted_amount
-                                consolidated_entry["debit"]["original_currency"] = consolidated_entry["debit"]["currency"]
-                                consolidated_entry["debit"]["original_amount"] = original_amount
-                                consolidated_entry["debit"]["currency"] = target_currency
+                                
+                                if success:
+                                    logger.info(
+                                        f"Converted debit amount for voucher {voucher_no}: "
+                                        f"{original_amount} {consolidated_entry['debit']['currency']} -> "
+                                        f"{converted_amount} {target_currency}"
+                                    )
+                                    consolidated_entry["debit"]["amount"] = converted_amount
+                                    consolidated_entry["debit"]["original_currency"] = consolidated_entry["debit"]["currency"]
+                                    consolidated_entry["debit"]["original_amount"] = original_amount
+                                    consolidated_entry["debit"]["currency"] = target_currency
+                                else:
+                                    logger.error(
+                                        f"Currency conversion failed for debit amount in voucher {voucher_no}: "
+                                        f"{original_amount} {consolidated_entry['debit']['currency']} could not be converted to {target_currency}. "
+                                        f"Using original amount."
+                                    )
+                                    # Keep original values but mark as failed conversion
+                                    consolidated_entry["debit"]["conversion_failed"] = True
                             except Exception as e:
-                                logger.warning(
-                                    f"Failed to convert debit amount for voucher {voucher_no}: {str(e)}"
+                                logger.error(
+                                    f"Exception during debit amount conversion for voucher {voucher_no}: {str(e)}"
                                 )
                 
                 # For credit entries, we'll consolidate them later
@@ -353,23 +481,35 @@ def consolidate_entries(entries):
                                     
                                     # Convert to target currency if needed
                                     if entry["credit"]["currency"] != target_currency:
-                                        converted_amount = convert_amount(
+                                        converted_amount, success = convert_amount(
                                             original_amount, 
                                             entry["credit"]["currency"], 
                                             target_currency,
                                             company_code=region_code  # Pass region_code as company_code
                                         )
-                                        logger.info(
-                                            f"Converted credit amount for voucher {voucher_no}: "
-                                            f"{original_amount} {entry['credit']['currency']} -> "
-                                            f"{converted_amount} {target_currency}"
-                                        )
-                                        total_credit_amount += converted_amount
+                                        
+                                        if success:
+                                            logger.info(
+                                                f"Converted credit amount for voucher {voucher_no}: "
+                                                f"{original_amount} {entry['credit']['currency']} -> "
+                                                f"{converted_amount} {target_currency}"
+                                            )
+                                            total_credit_amount += converted_amount
+                                        else:
+                                            logger.error(
+                                                f"Currency conversion failed for credit amount in voucher {voucher_no}: "
+                                                f"{original_amount} {entry['credit']['currency']} could not be converted to {target_currency}. "
+                                                f"Using original amount."
+                                            )
+                                            # Use original amount as fallback
+                                            total_credit_amount += original_amount
+                                            # Mark the entry as having a failed conversion
+                                            entry["credit"]["conversion_failed"] = True
                                     else:
                                         total_credit_amount += original_amount
                                 except Exception as e:
-                                    logger.warning(
-                                        f"Failed to convert credit amount for voucher {voucher_no}: {str(e)}"
+                                    logger.error(
+                                        f"Exception during credit amount conversion for voucher {voucher_no}: {str(e)}"
                                     )
                                     # Use original amount as fallback
                                     try:
@@ -394,6 +534,8 @@ def consolidate_entries(entries):
                     "description": template_entry["description"],
                     "note": template_entry["note"],
                     "receipt_invoice": template_entry["receipt_invoice"],
+                    "External_Document_No": template_entry["External_Document_No"],
+                    "Document_Date": template_entry["Document_Date"],
                     "debit": {
                         "marker": "",
                         "gl_account": "",
@@ -442,6 +584,10 @@ if __name__ == "__main__":
     parser.add_argument('-o', '--output', help='Output JSON file path (default: input_filename.json)')
     parser.add_argument('--max-desc-length', type=int, default=100, 
                         help='Maximum length for description field (default: 100)')
+    parser.add_argument('--no-fix-line-breaks', action='store_true',
+                        help='Disable fixing line breaks in CSV fields (enabled by default)')
+    parser.add_argument('--line-break-replacement', default=' ',
+                        help='Character to replace line breaks with (default: space)')
     
     args = parser.parse_args()
     
@@ -451,7 +597,14 @@ if __name__ == "__main__":
         args.output = f"{input_base}.json"
     
     try:
-        entry_count = convert_csv_to_json(args.input, args.output, args.max_desc_length)
+        # Convert CSV to JSON with the specified options
+        entry_count = convert_csv_to_json(
+            args.input, 
+            args.output, 
+            args.max_desc_length,
+            not args.no_fix_line_breaks,  # Invert the flag since our function expects fix_line_breaks
+            args.line_break_replacement
+        )
         print(f"Converted {entry_count} journal entries to JSON format.")
         print(f"Output saved to {args.output}")
     except FileNotFoundError as e:
