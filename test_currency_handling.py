@@ -97,22 +97,31 @@ class TestCurrencyHandling(unittest.TestCase):
         self.assertEqual(transform_currency_code("VCP", "PHP"), "")
         
         # Test with non-matching company and currency
-        self.assertEqual(transform_currency_code("VCT", "USD"), "USD")
-        self.assertEqual(transform_currency_code("VCP", "EUR"), "EUR")
+        self.assertEqual(transform_currency_code("VCT", "USD"), "R-USD")
+        self.assertEqual(transform_currency_code("VCP", "EUR"), "R-EUR")
         
         # Test with R- prefix
         self.assertEqual(transform_currency_code("VCT", "R-NTD"), "")
         self.assertEqual(transform_currency_code("VCP", "R-PHP"), "")
         
         # Test new currency code conversion rules
-        self.assertEqual(transform_currency_code("VCA", "USD"), "R-USD")
-        self.assertEqual(transform_currency_code("VCT", "RMB"), "RMB")  # Not a home currency for VCT
+        self.assertEqual(transform_currency_code("VCA", "USD"), "")  # USD is home currency for VCA
+        self.assertEqual(transform_currency_code("VCG", "USD"), "R-USD")  # USD is not home currency for VCG
+        self.assertEqual(transform_currency_code("VCT", "RMB"), "R-RMB")  # Not a home currency for VCT
         
-        # Test EUR with VCG - should return R-EUR
-        self.assertEqual(transform_currency_code("VCG", "EUR"), "R-EUR")
+        # Test EUR with VCG - should return empty string since EUR is home currency for VCG
+        self.assertEqual(transform_currency_code("VCG", "EUR"), "")
+        # Test EUR with VCT - should return R-EUR since EUR is not home currency for VCT
+        self.assertEqual(transform_currency_code("VCT", "EUR"), "R-EUR")
         
-        # Test with specific currencies that should get R- prefix
-        self.assertEqual(transform_currency_code("VCA", "R-USD"), "R-USD")  # Already has R- prefix
+        # Test with R- prefix for home currencies - should still return empty string
+        self.assertEqual(transform_currency_code("VCA", "R-USD"), "")  # R-USD for VCA is normalized to USD, which is home currency
+        self.assertEqual(transform_currency_code("VCT", "R-NTD"), "")  # R-NTD for VCT is normalized to NTD, which is home currency
+        
+        # Test new requirements for NTD, JPY, and PHP as non-home currencies
+        self.assertEqual(transform_currency_code("VCA", "NTD"), "R-NTD")  # NTD is not home currency for VCA
+        self.assertEqual(transform_currency_code("VCT", "JPY"), "R-JPY")  # JPY is not home currency for VCT
+        self.assertEqual(transform_currency_code("VCJ", "PHP"), "R-PHP")  # PHP is not home currency for VCJ
 
 if __name__ == "__main__":
     unittest.main()
