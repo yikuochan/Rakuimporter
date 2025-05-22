@@ -175,7 +175,7 @@ def transform_currency(company_code: str, currency_code: str, amount: float) -> 
         logger.info(f"Normalized currency code by removing R- prefix: {currency_code} -> {normalized_currency}")
     
     # Special case for XEU with VCG (treat XEU as EUR)
-    if company_code == "VCG" and (normalized_currency == "XEU" or normalized_currency == "EUR"):
+    if company_code == "VCG" and (normalized_currency == "XEU"):
         logger.info(f"Transforming currency code for company {company_code}: {currency_code} -> 'R-EUR'")
         return "R-EUR", amount
     
@@ -183,22 +183,10 @@ def transform_currency(company_code: str, currency_code: str, amount: float) -> 
     if company_code in company_currency_map:
         target_currency = company_currency_map[company_code]
         
-        # If the currency already matches the target
+        # If the currency already matches the target (home currency)
         if normalized_currency == target_currency:
             logger.info(f"Transforming currency code for company {company_code}: {currency_code} -> ''")
-            
-            # New requirement: Add R- prefix for specific currencies
-            if normalized_currency == "USD":
-                logger.info(f"Adding R- prefix to USD: '' -> 'R-USD'")
-                return "R-USD", amount
-            elif normalized_currency == "RMB":
-                logger.info(f"Adding R- prefix to RMB: '' -> 'R-RMB'")
-                return "R-RMB", amount
-            elif normalized_currency == "XEU":
-                logger.info(f"Adding R- prefix to XEU: '' -> 'R-EUR'")
-                return "R-EUR", amount
-            
-            # For other currencies, return empty string as before
+            # Always return empty string when currency matches home currency, regardless of which currency it is
             return "", amount
         
         # If we have a different currency, convert the amount to the target currency
@@ -208,23 +196,32 @@ def transform_currency(company_code: str, currency_code: str, amount: float) -> 
                 converted_amount = convert_amount(amount, normalized_currency, target_currency, company_code=company_code)
                 logger.info(f"Converted {amount} {currency_code} to {converted_amount:.2f} {target_currency} for company {company_code}")
                 
-                # Apply the same currency code transformation rules after conversion
-                if target_currency == "USD":
-                    logger.info(f"Adding R- prefix to USD after conversion: '' -> 'R-USD'")
-                    return "R-USD", converted_amount
-                elif target_currency == "RMB":
-                    logger.info(f"Adding R- prefix to RMB after conversion: '' -> 'R-RMB'")
-                    return "R-RMB", converted_amount
-                elif target_currency == "XEU" or target_currency == "EUR":
-                    logger.info(f"Adding R- prefix to EUR after conversion: '' -> 'R-EUR'")
-                    return "R-EUR", converted_amount
-                
-                # Return empty string for currency code (as it's the home currency) and the converted amount
+                # After conversion, the currency is now the home currency, so return empty string
                 return "", converted_amount
             except Exception as e:
                 logger.warning(f"Failed to convert {amount} from {currency_code} to {target_currency}: {str(e)}")
                 # Return original currency code and amount if conversion fails
                 return currency_code, amount
+    
+    # For non-home currencies, apply special rules
+    if normalized_currency == "USD":
+        logger.info(f"Adding R- prefix to USD: {currency_code} -> 'R-USD'")
+        return "R-USD", amount
+    elif normalized_currency == "RMB":
+        logger.info(f"Adding R- prefix to RMB: {currency_code} -> 'R-RMB'")
+        return "R-RMB", amount
+    elif normalized_currency == "XEU" or normalized_currency == "EUR":
+        logger.info(f"Adding R- prefix to {normalized_currency}: {currency_code} -> 'R-EUR'")
+        return "R-EUR", amount
+    elif normalized_currency == "NTD":
+        logger.info(f"Adding R- prefix to NTD: {currency_code} -> 'R-NTD'")
+        return "R-NTD", amount
+    elif normalized_currency == "JPY":
+        logger.info(f"Adding R- prefix to JPY: {currency_code} -> 'R-JPY'")
+        return "R-JPY", amount
+    elif normalized_currency == "PHP":
+        logger.info(f"Adding R- prefix to PHP: {currency_code} -> 'R-PHP'")
+        return "R-PHP", amount
     
     # If company code not in mapping or other issues, return original values
     return currency_code, amount
@@ -259,30 +256,61 @@ def transform_currency_code(company_code: str, currency_code: str) -> str:
         logger.info(f"Normalized currency code by removing R- prefix: {currency_code} -> {normalized_currency}")
     
     # Special case for XEU with VCG (treat XEU as EUR)
-    if company_code == "VCG" and (normalized_currency == "XEU" or normalized_currency == "EUR"):
+    if company_code == "VCG" and (normalized_currency == "XEU"):
         logger.info(f"Transforming currency code for company {company_code}: {currency_code} -> 'R-EUR'")
         return "R-EUR"
     
-    # If the company code exists in our mapping and the currency matches
+    # If the company code exists in our mapping and the currency matches the home currency
     if company_code in company_currency_map and normalized_currency == company_currency_map[company_code]:
         logger.info(f"Transforming currency code for company {company_code}: {currency_code} -> ''")
-        
-        # New requirement: Add R- prefix for specific currencies
-        if normalized_currency == "USD":
-            logger.info(f"Adding R- prefix to USD: '' -> 'R-USD'")
-            return "R-USD"
-        elif normalized_currency == "RMB":
-            logger.info(f"Adding R- prefix to RMB: '' -> 'R-RMB'")
-            return "R-RMB"
-        elif normalized_currency == "XEU" or normalized_currency == "EUR":
-            logger.info(f"Adding R- prefix to {normalized_currency}: '' -> 'R-EUR'")
-            return "R-EUR"
-        
-        # For other currencies, return empty string as before
+        # Always return empty string when currency matches home currency, regardless of which currency it is
         return ""
+    
+    # For non-home currencies, apply special rules
+    if normalized_currency == "USD":
+        logger.info(f"Adding R- prefix to USD: {currency_code} -> 'R-USD'")
+        return "R-USD"
+    elif normalized_currency == "RMB":
+        logger.info(f"Adding R- prefix to RMB: {currency_code} -> 'R-RMB'")
+        return "R-RMB"
+    elif normalized_currency == "XEU" or normalized_currency == "EUR":
+        logger.info(f"Adding R- prefix to {normalized_currency}: {currency_code} -> 'R-EUR'")
+        return "R-EUR"
+    elif normalized_currency == "NTD":
+        logger.info(f"Adding R- prefix to NTD: {currency_code} -> 'R-NTD'")
+        return "R-NTD"
+    elif normalized_currency == "JPY":
+        logger.info(f"Adding R- prefix to JPY: {currency_code} -> 'R-JPY'")
+        return "R-JPY"
+    elif normalized_currency == "PHP":
+        logger.info(f"Adding R- prefix to PHP: {currency_code} -> 'R-PHP'")
+        return "R-PHP"
     
     return currency_code
 
+
+def convert_date_format(date_str):
+    """
+    Convert date from YYYY/MM/DD to YYYY-MM-DD format
+    
+    Args:
+        date_str (str): Date string in YYYY/MM/DD format
+        
+    Returns:
+        str: Date string in YYYY-MM-DD format
+    """
+    if not date_str:
+        return ""
+    
+    try:
+        # Split by / and rejoin with -
+        parts = date_str.split('/')
+        if len(parts) == 3:
+            return f"{parts[0]}-{parts[1]}-{parts[2]}"
+        return date_str  # Return original if not in expected format
+    except Exception as e:
+        logger.warning(f"Failed to convert date format for {date_str}: {str(e)}")
+        return date_str  # Return original on error
 
 def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any]:
     """
@@ -356,11 +384,21 @@ def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any
         description = description[:100]
         logger.warning(f"Truncated Description to 100 characters: {description}")
     
-    # Get voucher_no and ensure it's not too long
-    voucher_no = entry.get("voucher_no", "")
-    if len(voucher_no) > 100:
-        voucher_no = voucher_no[:100]
-        logger.warning(f"Truncated External_Document_No to 100 characters: {voucher_no}")
+    # Get External_Document_No from the entry or fallback to voucher_no
+    external_document_no = entry.get("External_Document_No", "") or entry.get("voucher_no", "")
+    if len(external_document_no) > 100:
+        external_document_no = external_document_no[:100]
+        logger.warning(f"Truncated External_Document_No to 100 characters: {external_document_no}")
+    
+    # Get Document_No from voucher_no
+    document_no = entry.get("voucher_no", "")
+    if len(document_no) > 100:
+        document_no = document_no[:100]
+        logger.warning(f"Truncated Document_No to 100 characters: {document_no}")
+    
+    # Get Document_Date and convert format
+    document_date = entry.get("Document_Date", "")
+    formatted_document_date = convert_date_format(document_date)
     
     # Determine the company code from the department field
     department = entry_data.get("department", "")
@@ -382,37 +420,13 @@ def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any
         currency_to_use = entry_data.get("original_currency", "")
         amount_to_use = entry_data.get("original_amount", original_amount)
         
-        # Special case for XEU (treat XEU as EUR)
-        if currency_to_use == "XEU":
-            if company_code == "VCG":
-                transformed_currency = "R-EUR"
-                logger.info(
-                    f"Special case: Transforming XEU to R-EUR for company VCG - Voucher: {entry.get('voucher_no', 'Unknown')}, "
-                    f"Original Currency: {currency_to_use}, Transformed Currency: {transformed_currency}"
-                )
-            else:
-                transformed_currency = "R-EUR"
-                logger.info(
-                    f"Special case: Transforming XEU to R-EUR - Voucher: {entry.get('voucher_no', 'Unknown')}, "
-                    f"Original Currency: {currency_to_use}, Transformed Currency: {transformed_currency}"
-                )
-        # Special case for RMB (always transform to R-RMB)
-        elif currency_to_use == "RMB":
-            transformed_currency = "R-RMB"
-            logger.info(
-                f"Special case: Transforming RMB to R-RMB - Voucher: {entry.get('voucher_no', 'Unknown')}, "
-                f"Original Currency: {currency_to_use}, Transformed Currency: {transformed_currency}"
-            )
-        # Special case for USD with VCA
-        elif company_code == "VCA" and currency_to_use == "USD":
-            transformed_currency = "R-USD"
-            logger.info(
-                f"Special case: Transforming USD to R-USD for company VCA - Voucher: {entry.get('voucher_no', 'Unknown')}, "
-                f"Original Currency: {currency_to_use}, Transformed Currency: {transformed_currency}"
-            )
-        else:
-            # Apply transform_currency_code to the original currency
-            transformed_currency = transform_currency_code(company_code, currency_to_use)
+        # Apply transform_currency_code to the original currency
+        # This will handle all special cases consistently with our updated logic
+        transformed_currency = transform_currency_code(company_code, currency_to_use)
+        logger.info(
+            f"Applied transform_currency_code for debit line - Voucher: {entry.get('voucher_no', 'Unknown')}, "
+            f"Company: {company_code}, Original Currency: {currency_to_use}, Transformed Currency: {transformed_currency}"
+        )
         
         converted_amount = amount_to_use  # Use the original amount
         
@@ -448,7 +462,9 @@ def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any
         "Journal_Template_Name": JOURNAL_TEMPLATE_NAME,
         "Journal_Batch_Name": JOURNAL_BATCH_NAME,
         "Document_Type": DOCUMENT_TYPE,
-        "External_Document_No": voucher_no,
+        "External_Document_No": external_document_no,
+        "Document_No": document_no,
+        "Document_Date": formatted_document_date,
         "Account_Type": entry_data.get("gl_account", ""),
         "Account_No": account_no,
         "Description": description,
@@ -758,6 +774,7 @@ def main():
     parser.add_argument('input_file', help='Input JSON file path')
     parser.add_argument('--report', help='Generate currency modification report to specified file path', default="currency_modification_report.md")
     parser.add_argument('--dry-run', action='store_true', help='Generate report only without posting to API')
+    parser.add_argument('--sample-payload', help='Output a sample journal line payload to specified file path')
     args = parser.parse_args()
     
     # Check if input file exists
@@ -777,6 +794,25 @@ def main():
     # Generate currency modification report
     modifications = generate_currency_modification_report(entries, args.report)
     logger.info(f"Generated currency modification report with {len(modifications)} modifications")
+    
+    # If sample-payload is specified, generate a sample payload and exit
+    if args.sample_payload:
+        # Use the first entry to generate a sample payload
+        if entries:
+            entry = entries[0]
+            debit_line = create_journal_line(entry, "debit")
+            credit_line = create_journal_line(entry, "credit")
+            
+            sample = {
+                "debit_line": debit_line,
+                "credit_line": credit_line
+            }
+            
+            with open(args.sample_payload, 'w', encoding='utf-8') as f:
+                json.dump(sample, f, ensure_ascii=False, indent=2)
+            
+            logger.info(f"Sample payload written to {args.sample_payload}")
+            sys.exit(0)
     
     # If dry-run is specified, exit after generating the report
     if args.dry_run:
