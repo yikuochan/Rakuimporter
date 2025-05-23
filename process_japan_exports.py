@@ -90,7 +90,7 @@ TOKEN_URL = get_env_var(
 )
 API_URL = get_env_var(
     "ERP_API_URL", 
-    default="https://api.businesscentral.dynamics.com/v2.0/6b83c27c-aa6d-475a-9933-5c34bb008d73/Staging/ODataV4/Company('VCT')/PurchaseJournals"
+    default="https://api.businesscentral.dynamics.com/v2.0/6b83c27c-aa6d-475a-9933-5c34bb008d73/Production/ODataV4/Company('VCT')/PurchaseJournals"
 )
 CLIENT_ID = get_env_var("ERP_CLIENT_ID", required=True)
 CLIENT_SECRET = get_env_var("ERP_CLIENT_SECRET", required=True)
@@ -193,13 +193,14 @@ def transform_currency(company_code: str, currency_code: str, amount: float) -> 
         elif normalized_currency:
             try:
                 # Convert amount to target currency, passing company_code
-                converted_amount = convert_amount(amount, normalized_currency, target_currency, company_code=company_code)
-                logger.info(f"Converted {amount} {currency_code} to {converted_amount:.2f} {target_currency} for company {company_code}")
+                # Use the normalized currency for conversion, not the original with R- prefix
+                converted_amount, success = convert_amount(amount, normalized_currency, target_currency, company_code=company_code)
+                logger.info(f"Converted {amount} {normalized_currency} to {converted_amount:.2f} {target_currency} for company {company_code}")
                 
                 # After conversion, the currency is now the home currency, so return empty string
                 return "", converted_amount
             except Exception as e:
-                logger.warning(f"Failed to convert {amount} from {currency_code} to {target_currency}: {str(e)}")
+                logger.warning(f"Failed to convert {amount} from {normalized_currency} to {target_currency}: {str(e)}")
                 # Return original currency code and amount if conversion fails
                 return currency_code, amount
     
@@ -333,8 +334,11 @@ def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any
     # Get original amount
     original_amount = entry_data["amount"] if entry_type == "debit" else -entry_data["amount"]
     
-    # Add a note for consolidated entries
+    # Add voucher number to description
     description = entry.get("description", "")
+    voucher_no = entry.get("voucher_no", "Unknown")
+    
+    # Add a note for consolidated entries
     if entry_type == "credit" and entry_data.get("consolidated", False):
         consolidation_note = entry_data.get("consolidation_note", f"Consolidated from {entry_data.get('original_entries_count', 1)} entries")
         if description and len(description) + len(consolidation_note) + 3 <= 100:  # +3 for " - "
@@ -343,8 +347,24 @@ def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any
             description = consolidation_note
         logger.info(f"Added consolidation note to description: {description}")
     
-    # Always use applicant_code (申請者CD/支払先CD) for ShortcutDimCode4
-    shortcut_dim_code4 = entry_data.get("applicant_code", "")
+    # Add voucher number to the beginning of the description
+    description = f"{voucher_no} - {description}"
+    logger.info(f"Added voucher number to description: {description}")
+    
+    # Determine ShortcutDimCode4 based on account type and source of account_no
+    if entry_data.get("gl_account", "") == "Vendor":
+        # For Vendor accounts, check the source of account_no
+        if entry_data.get("vendor_code") and entry_data.get("account") == entry_data.get("vendor_code"):
+            # If account_no comes from column O (支払先CD), set ShortcutDimCode4 to empty
+            shortcut_dim_code4 = ""
+            logger.info(f"Setting ShortcutDimCode4 to empty for Vendor payment (支払先CD) - Voucher: {entry.get('voucher_no', 'Unknown')}")
+        else:
+            # If account_no comes from column N (申請者CD/支払先CD), use applicant_code
+            shortcut_dim_code4 = entry_data.get("applicant_code", "")
+            logger.info(f"Using applicant_code for ShortcutDimCode4 for Employee payment (申請者CD/支払先CD) - Voucher: {entry.get('voucher_no', 'Unknown')}")
+    else:
+        # For non-Vendor accounts, keep using applicant_code
+        shortcut_dim_code4 = entry_data.get("applicant_code", "")
     
     # Ensure shortcut_dim_code4 is not too long (max 100 chars)
     if len(shortcut_dim_code4) > 100:
@@ -499,13 +519,71 @@ def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any
 # Currency code rules are now handled in exchange_rate_query.py
 
 
-def post_journal_line(journal_line: Dict[str, Any], access_token: str) -> Tuple[bool, Dict[str, Any]]:
+class RateLimiter:
     """
-    Post a journal line to the ERP API.
+    Rate limiter class to manage API call timing and implement exponential backoff.
+    """
+    def __init__(self, base_delay=1.0, max_delay=10.0, backoff_factor=2.0):
+        """
+        Initialize the rate limiter.
+        
+        Args:
+            base_delay: Base delay in seconds between API calls
+            max_delay: Maximum delay in seconds between API calls
+            backoff_factor: Factor to increase delay on failures
+        """
+        self.base_delay = base_delay
+        self.max_delay = max_delay
+        self.backoff_factor = backoff_factor
+        self.last_request_time = 0
+        self.consecutive_failures = 0
+    
+    def wait_before_request(self):
+        """
+        Wait appropriate time before making a request.
+        """
+        current_time = time.time()
+        elapsed = current_time - self.last_request_time
+        
+        # Calculate delay based on consecutive failures (exponential backoff)
+        if self.consecutive_failures > 0:
+            delay = min(self.base_delay * (self.backoff_factor ** (self.consecutive_failures - 1)), self.max_delay)
+        else:
+            delay = self.base_delay
+            
+        # If not enough time has passed since last request, wait
+        if elapsed < delay:
+            wait_time = delay - elapsed
+            logger.info(f"Rate limiting: Waiting {wait_time:.2f} seconds before next API call")
+            time.sleep(wait_time)
+        
+        # Update last request time
+        self.last_request_time = time.time()
+    
+    def record_success(self):
+        """
+        Record a successful API call.
+        """
+        self.consecutive_failures = 0
+    
+    def record_failure(self):
+        """
+        Record a failed API call.
+        """
+        self.consecutive_failures += 1
+        logger.info(f"Rate limiting: Recorded failure. Consecutive failures: {self.consecutive_failures}")
+
+
+def post_journal_line(journal_line: Dict[str, Any], access_token: str, 
+                     rate_limiter: RateLimiter = None, max_retries: int = 3) -> Tuple[bool, Dict[str, Any]]:
+    """
+    Post a journal line to the ERP API with rate limiting and retry logic.
     
     Args:
         journal_line: The journal line payload
         access_token: OAuth2 access token
+        rate_limiter: RateLimiter instance for managing API call timing
+        max_retries: Maximum number of retry attempts for failed API calls
     
     Returns:
         Tuple[bool, Dict[str, Any]]: Success status and response data
@@ -526,7 +604,7 @@ def post_journal_line(journal_line: Dict[str, Any], access_token: str) -> Tuple[
         
         if company_code:
             # Construct the API URL with the company code
-            base_url = "https://api.businesscentral.dynamics.com/v2.0/6b83c27c-aa6d-475a-9933-5c34bb008d73/Staging/ODataV4/Company"
+            base_url = "https://api.businesscentral.dynamics.com/v2.0/6b83c27c-aa6d-475a-9933-5c34bb008d73/Production/ODataV4/Company"
             api_url = f"{base_url}('{company_code}')/PurchaseJournals"
             logger.info(f"Using company-specific API URL for {company_code}: {api_url}")
     
@@ -535,35 +613,149 @@ def post_journal_line(journal_line: Dict[str, Any], access_token: str) -> Tuple[
         "Content-Type": "application/json"
     }
     
-    try:
-        # Log the request body for debugging
-        logger.info(f"Request body for journal line: {json.dumps(journal_line, indent=2)}")
-        # Log headers (excluding Authorization header for security)
-        safe_headers = headers.copy()
-        if "Authorization" in safe_headers:
-            safe_headers["Authorization"] = "Bearer [REDACTED]"
-        logger.info(f"Request headers: {json.dumps(safe_headers, indent=2)}")
-        # Temporarily disable SSL verification for testing
-        response = requests.post(api_url, json=journal_line, headers=headers, verify=False)
-        # Log response status and headers
-        logger.info(f"Response status code: {response.status_code}")
-        logger.info(f"Response headers: {json.dumps(dict(response.headers), indent=2)}")
-        response.raise_for_status()
-        response_data = response.json()
-        # Log the response data
-        logger.info(f"API response body: {json.dumps(response_data, indent=2)}")
-        return True, response_data
-    except requests.exceptions.HTTPError as e:
-        logger.error(f"HTTP error: {str(e)}")
+    # Create a default rate limiter if none provided
+    if rate_limiter is None:
+        rate_limiter = RateLimiter()
+    
+    retry_count = 0
+    
+    while retry_count <= max_retries:
+        # Wait before making the request
+        rate_limiter.wait_before_request()
+        
         try:
-            error_data = response.json()
-            logger.error(f"API error response: {json.dumps(error_data, indent=2)}")
-            return False, error_data
-        except:
-            return False, {"error": str(e)}
-    except Exception as e:
-        logger.error(f"Error posting journal line: {str(e)}")
-        return False, {"error": str(e)}
+            # Log the request body for debugging
+            logger.info(f"Request body for journal line: {json.dumps(journal_line, indent=2)}")
+            # Log headers (excluding Authorization header for security)
+            safe_headers = headers.copy()
+            if "Authorization" in safe_headers:
+                safe_headers["Authorization"] = "Bearer [REDACTED]"
+            logger.info(f"Request headers: {json.dumps(safe_headers, indent=2)}")
+            
+            # Temporarily disable SSL verification for testing
+            response = requests.post(api_url, json=journal_line, headers=headers, verify=False)
+            
+            # Log response status and headers
+            logger.info(f"Response status code: {response.status_code}")
+            logger.info(f"Response headers: {json.dumps(dict(response.headers), indent=2)}")
+            
+            # Check for rate limit response (usually 429 Too Many Requests)
+            if response.status_code == 429:
+                logger.warning("Rate limit hit. Backing off...")
+                rate_limiter.record_failure()
+                retry_count += 1
+                continue
+            
+            # For other errors, raise the exception
+            response.raise_for_status()
+            
+            # Process successful response
+            response_data = response.json()
+            # Log the response data
+            logger.info(f"API response body: {json.dumps(response_data, indent=2)}")
+            
+            # Record success and return
+            rate_limiter.record_success()
+            return True, response_data
+            
+        except requests.exceptions.HTTPError as e:
+            logger.error(f"HTTP error: {str(e)}")
+            
+            # For 5xx errors (server errors), retry
+            if 500 <= response.status_code < 600:
+                logger.warning(f"Server error {response.status_code}. Retrying...")
+                rate_limiter.record_failure()
+                retry_count += 1
+            else:
+                # For other HTTP errors, don't retry
+                try:
+                    error_data = response.json()
+                    logger.error(f"API error response: {json.dumps(error_data, indent=2)}")
+                    return False, error_data
+                except:
+                    return False, {"error": str(e)}
+                    
+        except Exception as e:
+            logger.error(f"Error posting journal line: {str(e)}")
+            rate_limiter.record_failure()
+            retry_count += 1
+            
+        # If we've reached max retries, give up
+        if retry_count > max_retries:
+            logger.error(f"Max retries ({max_retries}) exceeded. Giving up.")
+            return False, {"error": f"Failed after {max_retries} attempts"}
+    
+    # If we exit the loop without returning, it means we've exceeded max retries
+    logger.error(f"Max retries ({max_retries}) exceeded. Giving up.")
+    return False, {"error": f"Failed after {max_retries} attempts"}
+
+
+def verify_balanced_amounts(entry_or_entries, tolerance=0.01):
+    """
+    Verify that debit and credit amounts balance after currency conversion.
+    
+    Args:
+        entry_or_entries: Single entry dict or list of entry dicts
+        tolerance: Acceptable difference between debit and credit amounts
+        
+    Returns:
+        tuple: (is_balanced, difference, debit_total, credit_total)
+    """
+    entries = [entry_or_entries] if isinstance(entry_or_entries, dict) else entry_or_entries
+    
+    # Calculate total debit and credit amounts after currency conversion
+    debit_total = 0
+    credit_total = 0
+    
+    for entry in entries:
+        # Get company code from debit department
+        debit_dept = entry.get("debit", {}).get("department", "")
+        company_code = debit_dept[:3] if debit_dept else ""
+        
+        # Get debit amount and currency
+        debit_amount = entry.get("debit", {}).get("amount", 0)
+        debit_currency = entry.get("debit", {}).get("currency", "")
+        
+        # Get credit amount and currency
+        credit_amount = entry.get("credit", {}).get("amount", 0)
+        credit_currency = entry.get("credit", {}).get("currency", "")
+        
+        # Apply currency transformation to get the final amounts
+        _, converted_debit = transform_currency(company_code, debit_currency, debit_amount)
+        _, converted_credit = transform_currency(company_code, credit_currency, credit_amount)
+        
+        debit_total += converted_debit
+        credit_total += converted_credit
+    
+    # Calculate difference
+    difference = abs(debit_total - credit_total)
+    
+    # Check if within tolerance
+    is_balanced = difference <= tolerance
+    
+    return is_balanced, difference, debit_total, credit_total
+
+
+def generate_unbalanced_entries_report(unbalanced_entries, output_file):
+    """
+    Generate a report of unbalanced entries.
+    
+    Args:
+        unbalanced_entries: List of dictionaries containing unbalanced entry details
+        output_file: Path to the output report file
+    """
+    with open(output_file, 'w') as f:
+        f.write("# Unbalanced Entries Report\n\n")
+        f.write("| Voucher No | Vendor Code | Debit Total | Credit Total | Difference |\n")
+        f.write("|------------|-------------|-------------|--------------|------------|\n")
+        
+        for entry in unbalanced_entries:
+            f.write(f"| {entry['voucher_no']} | {entry['vendor_code']} | " 
+                   f"{entry['debit_total']:.2f} | {entry['credit_total']:.2f} | " 
+                   f"{entry['difference']:.2f} |\n")
+        
+        f.write(f"\n\nTotal unbalanced entries: {len(unbalanced_entries)}\n")
+        f.write(f"\nNote: This report includes entries where the difference between debit and credit amounts exceeds the tolerance of 0.01.\n")
 
 
 def generate_currency_modification_report(entries: List[Dict[str, Any]], output_file: str) -> List[Dict[str, Any]]:
@@ -630,26 +822,51 @@ def generate_currency_modification_report(entries: List[Dict[str, Any]], output_
     return modifications
 
 
-def process_entries(entries: List[Dict[str, Any]], access_token: str) -> Tuple[int, int]:
+def process_entries(entries: List[Dict[str, Any]], access_token: str, balance_tolerance: float = 0.01, 
+                   skip_unbalanced: bool = False, unbalanced_report_file: str = "unbalanced_entries_report.md",
+                   base_delay: float = 5.0, max_delay: float = 10.0, backoff_factor: float = 2.0, 
+                   max_retries: int = 3) -> Tuple[int, int, int, int]:
     """
-    Process all entries and post them to the ERP API.
+    Process all entries and post them to the ERP API with rate limiting.
     
     Args:
         entries: List of journal entries
         access_token: OAuth2 access token
+        balance_tolerance: Acceptable difference between debit and credit amounts
+        skip_unbalanced: If True, skip unbalanced entries instead of posting them
+        unbalanced_report_file: Path to the output report file for unbalanced entries
+        base_delay: Base delay in seconds between API calls
+        max_delay: Maximum delay in seconds between API calls
+        backoff_factor: Factor to increase delay on failures
+        max_retries: Maximum number of retry attempts for failed API calls
     
     Returns:
-        Tuple[int, int]: Count of successful and failed entries
+        Tuple[int, int, int, int]: Count of successful, failed, balanced, and unbalanced entries
     """
+    # Create a rate limiter
+    rate_limiter = RateLimiter(base_delay, max_delay, backoff_factor)
+    logger.info(f"Rate limiter initialized with base_delay={base_delay}s, max_delay={max_delay}s, backoff_factor={backoff_factor}")
     success_count = 0
     failure_count = 0
+    balanced_count = 0
+    unbalanced_count = 0
+    unbalanced_entries = []
     
     # Group entries by voucher number and vendor code
     entry_groups = {}
+    # Track entries that are already consolidated in the input data
+    already_consolidated = set()
+    
     for entry in entries:
         voucher_no = entry.get('voucher_no', 'Unknown')
         vendor_code = entry.get('credit', {}).get('vendor_code', '')
         
+        # Check if this is a consolidated entry (empty debit and consolidated credit)
+        if (not entry.get("debit", {}).get("account") and 
+            entry.get("credit", {}).get("consolidated", False)):
+            # Mark this voucher as already having a consolidated entry
+            already_consolidated.add(voucher_no)
+            
         if not vendor_code:
             # If no vendor code, just process as individual entry
             if voucher_no not in entry_groups:
@@ -667,68 +884,66 @@ def process_entries(entries: List[Dict[str, Any]], access_token: str) -> Tuple[i
     
     # Process each group
     for voucher_no, vendor_groups in entry_groups.items():
+        # Check if this voucher is already consolidated in the input data
+        is_already_consolidated = voucher_no in already_consolidated
+        
         for vendor_code, group_entries in vendor_groups.items():
-            # Skip entries that are marked as consolidated but have empty debit
-            # These are the consolidated credit entries we'll generate ourselves
+            # Find entries with valid debit information
             valid_entries = [e for e in group_entries if e["debit"] and e["debit"].get("amount")]
+            
+            # Find consolidated credit entries
+            consolidated_entries = [e for e in group_entries if e["credit"].get("consolidated", False)]
             
             if not valid_entries:
                 continue
                 
-            # If only one valid entry in the group, process it normally
-            if len(valid_entries) == 1 and not valid_entries[0]["credit"].get("consolidated", False):
-                entry = valid_entries[0]
-                logger.info(f"Processing single entry - Voucher: {entry.get('voucher_no', 'Unknown')}")
+            # If only one valid entry in the group or this voucher is already consolidated,
+            # process each entry individually
+            if len(valid_entries) == 1 or is_already_consolidated:
+                # Process each valid entry individually
+                for entry in valid_entries:
+                    entry_voucher_no = entry.get('voucher_no', 'Unknown')
+                    logger.info(f"Processing individual entry - Voucher: {entry_voucher_no}")
                 
-                # Process debit line
-                debit_line = create_journal_line(entry, "debit")
-                # Ensure Document_No matches the voucher_no
-                voucher_no = entry.get('voucher_no', 'Unknown')
-                debit_line["Document_No"] = voucher_no
-                # Use the original External_Document_No without modification
-                logger.info(f"Posting debit line for voucher {voucher_no} with Document_No: {debit_line['Document_No']}")
-                debit_success, debit_response = post_journal_line(debit_line, access_token)
-                
-                if debit_success:
-                    logger.info(f"Successfully posted debit line for voucher {voucher_no}")
-                    success_count += 1
-                else:
-                    logger.error(f"Failed to post debit line for voucher {voucher_no}")
-                    failure_count += 1
-                
-                # Small delay between requests to avoid rate limiting
-                time.sleep(0.5)
-                
-                # Process credit line
-                credit_line = create_journal_line(entry, "credit")
-                # Ensure Document_No matches the voucher_no
-                credit_line["Document_No"] = voucher_no
-                # Use the original External_Document_No without modification
-                logger.info(f"Posting credit line for voucher {voucher_no} with Document_No: {credit_line['Document_No']}")
-                credit_success, credit_response = post_journal_line(credit_line, access_token)
-                
-                if credit_success:
-                    logger.info(f"Successfully posted credit line for voucher {entry.get('voucher_no', 'Unknown')}")
-                    success_count += 1
-                else:
-                    logger.error(f"Failed to post credit line for voucher {entry.get('voucher_no', 'Unknown')}")
-                    failure_count += 1
-                
-                # Small delay between entries
-                time.sleep(0.5)
-            else:
-                # Process multiple entries with consolidated credit
-                logger.info(f"Processing {len(valid_entries)} entries with consolidated credit - Voucher: {voucher_no}")
-                
-                # Process all debit lines
-                for i, entry in enumerate(valid_entries):
+                    # Verify that debit and credit amounts balance after currency conversion
+                    is_balanced, difference, debit_total, credit_total = verify_balanced_amounts(entry, balance_tolerance)
+                    
+                    if is_balanced:
+                        logger.info(f"Entry balanced for voucher {entry_voucher_no}: " 
+                                   f"Debit: {debit_total:.2f}, Credit: {credit_total:.2f}")
+                        balanced_count += 1
+                    else:
+                        logger.warning(f"Unbalanced entry detected for voucher {entry_voucher_no}: " 
+                                      f"Debit: {debit_total:.2f}, Credit: {credit_total:.2f}, " 
+                                      f"Difference: {difference:.2f}")
+                        unbalanced_count += 1
+                        
+                        # Store unbalanced entry details for reporting
+                        unbalanced_entries.append({
+                            "voucher_no": entry_voucher_no,
+                            "vendor_code": entry.get('credit', {}).get('vendor_code', ''),
+                            "debit_total": debit_total,
+                            "credit_total": credit_total,
+                            "difference": difference,
+                            "entries": [entry]
+                        })
+                        
+                        # Skip unbalanced entries if configured to do so
+                        if skip_unbalanced:
+                            logger.error(f"Skipping unbalanced entry for voucher {entry_voucher_no}")
+                            continue
+                        else:
+                            logger.warning(f"Processing unbalanced entry for voucher {entry_voucher_no} despite imbalance")
+                    
+                    # Process debit line
                     debit_line = create_journal_line(entry, "debit")
-                    # Ensure Document_No matches the entry's voucher_no
-                    entry_voucher_no = entry.get('voucher_no', voucher_no)
+                    # Ensure Document_No matches the voucher_no
                     debit_line["Document_No"] = entry_voucher_no
                     # Use the original External_Document_No without modification
-                    logger.info(f"Posting debit line {i+1}/{len(valid_entries)} for voucher {entry_voucher_no} with Document_No: {debit_line['Document_No']}")
-                    debit_success, debit_response = post_journal_line(debit_line, access_token)
+                    logger.info(f"Posting debit line for voucher {entry_voucher_no} with Document_No: {debit_line['Document_No']}")
+                    # Create a deep copy of the debit line to prevent any reference issues
+                    debit_line_copy = json.loads(json.dumps(debit_line))
+                    debit_success, debit_response = post_journal_line(debit_line_copy, access_token, rate_limiter, max_retries)
                     
                     if debit_success:
                         logger.info(f"Successfully posted debit line for voucher {entry_voucher_no}")
@@ -737,21 +952,63 @@ def process_entries(entries: List[Dict[str, Any]], access_token: str) -> Tuple[i
                         logger.error(f"Failed to post debit line for voucher {entry_voucher_no}")
                         failure_count += 1
                     
-                    # Small delay between requests to avoid rate limiting
-                    time.sleep(0.5)
+                    # If this voucher is already consolidated in the input data,
+                    # only post the credit line for the entry with the consolidated credit
+                    if not is_already_consolidated or not consolidated_entries:
+                        # Process credit line
+                        credit_line = create_journal_line(entry, "credit")
+                        # Ensure Document_No matches the voucher_no
+                        credit_line["Document_No"] = entry_voucher_no
+                        # Use the original External_Document_No without modification
+                        logger.info(f"Posting credit line for voucher {entry_voucher_no} with Document_No: {credit_line['Document_No']}")
+                        # Create a deep copy of the credit line to prevent any reference issues
+                        credit_line_copy = json.loads(json.dumps(credit_line))
+                        credit_success, credit_response = post_journal_line(credit_line_copy, access_token, rate_limiter, max_retries)
+                        
+                        if credit_success:
+                            logger.info(f"Successfully posted credit line for voucher {entry_voucher_no}")
+                            success_count += 1
+                        else:
+                            logger.error(f"Failed to post credit line for voucher {entry_voucher_no}")
+                            failure_count += 1
+                
+                # If this voucher is already consolidated and we have consolidated entries,
+                # post the consolidated credit line once
+                if is_already_consolidated and consolidated_entries:
+                    # Use the first consolidated entry
+                    consolidated_entry = consolidated_entries[0]
+                    consolidated_voucher_no = consolidated_entry.get('voucher_no', voucher_no)
+                    
+                    # Process the consolidated credit line
+                    credit_line = create_journal_line(consolidated_entry, "credit")
+                    # Ensure Document_No matches the consolidated voucher_no
+                    credit_line["Document_No"] = consolidated_voucher_no
+                    # Use the original External_Document_No without modification
+                    logger.info(f"Posting consolidated credit line for voucher {consolidated_voucher_no} with Document_No: {credit_line['Document_No']} - " +
+                               f"Using existing consolidated entry")
+                    
+                    # Create a deep copy of the credit line to prevent any reference issues
+                    credit_line_copy = json.loads(json.dumps(credit_line))
+                    credit_success, credit_response = post_journal_line(credit_line_copy, access_token, rate_limiter, max_retries)
+                    
+                    if credit_success:
+                        logger.info(f"Successfully posted consolidated credit line for voucher {consolidated_voucher_no}")
+                        success_count += 1
+                    else:
+                        logger.error(f"Failed to post consolidated credit line for voucher {consolidated_voucher_no}")
+                        failure_count += 1
+            # Only process multiple entries with consolidated credit if this voucher is not already consolidated
+            elif not is_already_consolidated:
+                # Process multiple entries with consolidated credit
+                logger.info(f"Processing {len(valid_entries)} entries with consolidated credit - Voucher: {voucher_no}")
                 
                 # Find the consolidated credit entry if it exists
                 consolidated_entry = next((e for e in group_entries if e["credit"].get("consolidated", False)), None)
                 
                 if consolidated_entry:
                     # Use the existing consolidated credit entry
-                    credit_line = create_journal_line(consolidated_entry, "credit")
-                    # Ensure Document_No matches the consolidated entry's voucher_no
-                    consolidated_voucher_no = consolidated_entry.get('voucher_no', voucher_no)
-                    credit_line["Document_No"] = consolidated_voucher_no
-                    # Use the original External_Document_No without modification
-                    logger.info(f"Posting consolidated credit line for voucher {consolidated_voucher_no} with Document_No: {credit_line['Document_No']} - " +
-                               f"Consolidated from {consolidated_entry['credit'].get('original_entries_count', len(valid_entries))} entries")
+                    template_entry = consolidated_entry
+                    consolidated_voucher_no = template_entry.get('voucher_no', voucher_no)
                 else:
                     # Create a new consolidated credit entry from the first entry
                     # Sum up all debit amounts
@@ -763,28 +1020,82 @@ def process_entries(entries: List[Dict[str, Any]], access_token: str) -> Tuple[i
                     template_entry["credit"]["consolidated"] = True
                     template_entry["credit"]["original_entries_count"] = len(valid_entries)
                     template_entry["credit"]["consolidation_note"] = f"Consolidated from {len(valid_entries)} entries"
-                    
-                    credit_line = create_journal_line(template_entry, "credit")
-                    # Ensure Document_No matches the template entry's voucher_no
-                    template_voucher_no = template_entry.get('voucher_no', voucher_no)
-                    credit_line["Document_No"] = template_voucher_no
-                    # Use the original External_Document_No without modification
-                    logger.info(f"Posting new consolidated credit line for voucher {template_voucher_no} with Document_No: {credit_line['Document_No']} - " +
-                               f"Consolidated from {len(valid_entries)} entries")
+                    consolidated_voucher_no = template_entry.get('voucher_no', voucher_no)
                 
-                credit_success, credit_response = post_journal_line(credit_line, access_token)
+                # Verify that the consolidated entries balance
+                is_balanced, difference, debit_total, credit_total = verify_balanced_amounts(valid_entries, balance_tolerance)
+                
+                if is_balanced:
+                    logger.info(f"Consolidated entries balanced for voucher group {voucher_no}: " 
+                               f"Debit: {debit_total:.2f}, Credit: {credit_total:.2f}")
+                    balanced_count += 1
+                else:
+                    logger.warning(f"Unbalanced consolidated entries detected for voucher group {voucher_no}: " 
+                                  f"Debit: {debit_total:.2f}, Credit: {credit_total:.2f}, " 
+                                  f"Difference: {difference:.2f}")
+                    unbalanced_count += 1
+                    
+                    # Store unbalanced entry details for reporting
+                    unbalanced_entries.append({
+                        "voucher_no": voucher_no,
+                        "vendor_code": vendor_code,
+                        "debit_total": debit_total,
+                        "credit_total": credit_total,
+                        "difference": difference,
+                        "entries": valid_entries
+                    })
+                    
+                    # Skip unbalanced entries if configured to do so
+                    if skip_unbalanced:
+                        logger.error(f"Skipping unbalanced consolidated entries for voucher group {voucher_no}")
+                        continue
+                    else:
+                        logger.warning(f"Processing unbalanced consolidated entries for voucher group {voucher_no} despite imbalance")
+                
+                # Process all debit lines
+                for i, entry in enumerate(valid_entries):
+                    debit_line = create_journal_line(entry, "debit")
+                    # Ensure Document_No matches the entry's voucher_no
+                    entry_voucher_no = entry.get('voucher_no', voucher_no)
+                    debit_line["Document_No"] = entry_voucher_no
+                    # Use the original External_Document_No without modification
+                    logger.info(f"Posting debit line {i+1}/{len(valid_entries)} for voucher {entry_voucher_no} with Document_No: {debit_line['Document_No']}")
+                    # Create a deep copy of the debit line to prevent any reference issues
+                    debit_line_copy = json.loads(json.dumps(debit_line))
+                    debit_success, debit_response = post_journal_line(debit_line_copy, access_token, rate_limiter, max_retries)
+                    
+                    if debit_success:
+                        logger.info(f"Successfully posted debit line for voucher {entry_voucher_no}")
+                        success_count += 1
+                    else:
+                        logger.error(f"Failed to post debit line for voucher {entry_voucher_no}")
+                        failure_count += 1
+                
+                # Process the consolidated credit line
+                credit_line = create_journal_line(template_entry, "credit")
+                # Ensure Document_No matches the template entry's voucher_no
+                credit_line["Document_No"] = consolidated_voucher_no
+                # Use the original External_Document_No without modification
+                logger.info(f"Posting consolidated credit line for voucher {consolidated_voucher_no} with Document_No: {credit_line['Document_No']} - " +
+                           f"Consolidated from {len(valid_entries)} entries")
+                
+                # Create a deep copy of the credit line to prevent any reference issues
+                credit_line_copy = json.loads(json.dumps(credit_line))
+                credit_success, credit_response = post_journal_line(credit_line_copy, access_token, rate_limiter, max_retries)
                 
                 if credit_success:
-                    logger.info(f"Successfully posted consolidated credit line for voucher {voucher_no}")
+                    logger.info(f"Successfully posted consolidated credit line for voucher {consolidated_voucher_no}")
                     success_count += 1
                 else:
-                    logger.error(f"Failed to post consolidated credit line for voucher {voucher_no}")
+                    logger.error(f"Failed to post consolidated credit line for voucher {consolidated_voucher_no}")
                     failure_count += 1
-                
-                # Small delay between entries
-                time.sleep(0.5)
     
-    return success_count, failure_count
+    # Generate report of unbalanced entries if any were found
+    if unbalanced_entries:
+        generate_unbalanced_entries_report(unbalanced_entries, unbalanced_report_file)
+        logger.info(f"Generated unbalanced entries report with {len(unbalanced_entries)} entries: {unbalanced_report_file}")
+    
+    return success_count, failure_count, balanced_count, unbalanced_count
 
 
 def main():
@@ -792,8 +1103,15 @@ def main():
     parser = argparse.ArgumentParser(description='Process JSON file and post to ERP API')
     parser.add_argument('input_file', help='Input JSON file path')
     parser.add_argument('--report', help='Generate currency modification report to specified file path', default="currency_modification_report.md")
+    parser.add_argument('--unbalanced-report', help='Generate unbalanced entries report to specified file path', default="unbalanced_entries_report.md")
+    parser.add_argument('--balance-tolerance', type=float, default=0.01, help='Acceptable difference between debit and credit amounts')
+    parser.add_argument('--skip-unbalanced', action='store_true', help='Skip unbalanced entries instead of posting them')
     parser.add_argument('--dry-run', action='store_true', help='Generate report only without posting to API')
     parser.add_argument('--sample-payload', help='Output a sample journal line payload to specified file path')
+    parser.add_argument('--base-delay', type=float, default=5.0, help='Base delay between API calls in seconds (default: 5.0)')
+    parser.add_argument('--max-delay', type=float, default=10.0, help='Maximum delay between API calls in seconds (default: 10.0)')
+    parser.add_argument('--backoff-factor', type=float, default=2.0, help='Factor to increase delay on failures (default: 2.0)')
+    parser.add_argument('--max-retries', type=int, default=3, help='Maximum number of retry attempts for failed API calls (default: 3)')
     args = parser.parse_args()
     
     # Check if input file exists
@@ -846,11 +1164,22 @@ def main():
         sys.exit(1)
     
     # Process entries
-    success_count, failure_count = process_entries(entries, access_token)
+    success_count, failure_count, balanced_count, unbalanced_count = process_entries(
+        entries, 
+        access_token, 
+        balance_tolerance=args.balance_tolerance,
+        skip_unbalanced=args.skip_unbalanced,
+        unbalanced_report_file=args.unbalanced_report,
+        base_delay=args.base_delay,
+        max_delay=args.max_delay,
+        backoff_factor=args.backoff_factor,
+        max_retries=args.max_retries
+    )
     
     # Log summary
     total_lines = len(entries) * 2  # Each entry has debit and credit lines
     logger.info(f"Processing complete. Success: {success_count}/{total_lines}, Failure: {failure_count}/{total_lines}")
+    logger.info(f"Balance check: Balanced: {balanced_count}, Unbalanced: {unbalanced_count}")
 
 
 if __name__ == "__main__":
