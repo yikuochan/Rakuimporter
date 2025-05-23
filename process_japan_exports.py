@@ -226,3 +226,65 @@ def transform_currency(company_code: str, currency_code: str, amount: float) -> 
     
     # If company code not in mapping or other issues, return original values
     return currency_code, amount
+
+def transform_currency_code(company_code: str, currency_code: str) -> str:
+    """
+    Legacy function for backward compatibility.
+    Transform currency code based on company code according to business rules.
+    
+    Args:
+        company_code: The company code (e.g., VCT, VCP, etc.)
+        currency_code: The original currency code from the JSON
+        
+    Returns:
+        str: The transformed currency code (empty string if it matches the rule,
+             or R-prefixed version for specific currencies)
+    """
+    # Define the mapping of company codes to their respective "home" currencies
+    # Updated to align with currency_converter.py
+    company_currency_map = {
+        "VCT": "NTD",
+        "VCP": "PHP",  # Removed "R-" prefix
+        "VCA": "USD",  # Removed "R-" prefix
+        "VCG": "EUR",  # Removed "R-" prefix
+        "VCJ": "JPY"
+    }
+    
+    # Handle "R-" prefix in currency codes
+    normalized_currency = currency_code
+    if currency_code and currency_code.startswith("R-"):
+        normalized_currency = currency_code[2:]  # Remove "R-" prefix
+        logger.info(f"Normalized currency code by removing R- prefix: {currency_code} -> {normalized_currency}")
+    
+    # Special case for XEU with VCG (treat XEU as EUR)
+    if company_code == "VCG" and (normalized_currency == "XEU"):
+        logger.info(f"Transforming currency code for company {company_code}: {currency_code} -> 'R-EUR'")
+        return "R-EUR"
+    
+    # If the company code exists in our mapping and the currency matches the home currency
+    if company_code in company_currency_map and normalized_currency == company_currency_map[company_code]:
+        logger.info(f"Transforming currency code for company {company_code}: {currency_code} -> ''")
+        # Always return empty string when currency matches home currency, regardless of which currency it is
+        return ""
+    
+    # For non-home currencies, apply special rules
+    if normalized_currency == "USD":
+        logger.info(f"Adding R- prefix to USD: {currency_code} -> 'R-USD'")
+        return "R-USD"
+    elif normalized_currency == "RMB":
+        logger.info(f"Adding R- prefix to RMB: {currency_code} -> 'R-RMB'")
+        return "R-RMB"
+    elif normalized_currency == "XEU" or normalized_currency == "EUR":
+        logger.info(f"Adding R- prefix to {normalized_currency}: {currency_code} -> 'R-EUR'")
+        return "R-EUR"
+    elif normalized_currency == "NTD":
+        logger.info(f"Adding R- prefix to NTD: {currency_code} -> 'R-NTD'")
+        return "R-NTD"
+    elif normalized_currency == "JPY":
+        logger.info(f"Adding R- prefix to JPY: {currency_code} -> 'R-JPY'")
+        return "R-JPY"
+    elif normalized_currency == "PHP":
+        logger.info(f"Adding R- prefix to PHP: {currency_code} -> 'R-PHP'")
+        return "R-PHP"
+    
+    return currency_code
