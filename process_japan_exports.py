@@ -685,9 +685,7 @@ def process_entries(entries: List[Dict[str, Any]], access_token: str) -> Tuple[i
                 # Ensure Document_No matches the voucher_no
                 voucher_no = entry.get('voucher_no', 'Unknown')
                 debit_line["Document_No"] = voucher_no
-                # Set External_Document_No to include the voucher_no to ensure uniqueness
-                if "External_Document_No" in debit_line:
-                    debit_line["External_Document_No"] = f"{voucher_no}-{debit_line['External_Document_No']}"
+                # Use the original External_Document_No without modification
                 logger.info(f"Posting debit line for voucher {voucher_no} with Document_No: {debit_line['Document_No']}")
                 debit_success, debit_response = post_journal_line(debit_line, access_token)
                 
@@ -705,9 +703,7 @@ def process_entries(entries: List[Dict[str, Any]], access_token: str) -> Tuple[i
                 credit_line = create_journal_line(entry, "credit")
                 # Ensure Document_No matches the voucher_no
                 credit_line["Document_No"] = voucher_no
-                # Set External_Document_No to include the voucher_no to ensure uniqueness
-                if "External_Document_No" in credit_line:
-                    credit_line["External_Document_No"] = f"{voucher_no}-{credit_line['External_Document_No']}"
+                # Use the original External_Document_No without modification
                 logger.info(f"Posting credit line for voucher {voucher_no} with Document_No: {credit_line['Document_No']}")
                 credit_success, credit_response = post_journal_line(credit_line, access_token)
                 
@@ -730,9 +726,7 @@ def process_entries(entries: List[Dict[str, Any]], access_token: str) -> Tuple[i
                     # Ensure Document_No matches the entry's voucher_no
                     entry_voucher_no = entry.get('voucher_no', voucher_no)
                     debit_line["Document_No"] = entry_voucher_no
-                    # Set External_Document_No to include the voucher_no to ensure uniqueness
-                    if "External_Document_No" in debit_line:
-                        debit_line["External_Document_No"] = f"{entry_voucher_no}-{debit_line['External_Document_No']}"
+                    # Use the original External_Document_No without modification
                     logger.info(f"Posting debit line {i+1}/{len(valid_entries)} for voucher {entry_voucher_no} with Document_No: {debit_line['Document_No']}")
                     debit_success, debit_response = post_journal_line(debit_line, access_token)
                     
@@ -755,9 +749,7 @@ def process_entries(entries: List[Dict[str, Any]], access_token: str) -> Tuple[i
                     # Ensure Document_No matches the consolidated entry's voucher_no
                     consolidated_voucher_no = consolidated_entry.get('voucher_no', voucher_no)
                     credit_line["Document_No"] = consolidated_voucher_no
-                    # Set External_Document_No to include the voucher_no to ensure uniqueness
-                    if "External_Document_No" in credit_line:
-                        credit_line["External_Document_No"] = f"{consolidated_voucher_no}-{credit_line['External_Document_No']}"
+                    # Use the original External_Document_No without modification
                     logger.info(f"Posting consolidated credit line for voucher {consolidated_voucher_no} with Document_No: {credit_line['Document_No']} - " +
                                f"Consolidated from {consolidated_entry['credit'].get('original_entries_count', len(valid_entries))} entries")
                 else:
@@ -776,9 +768,7 @@ def process_entries(entries: List[Dict[str, Any]], access_token: str) -> Tuple[i
                     # Ensure Document_No matches the template entry's voucher_no
                     template_voucher_no = template_entry.get('voucher_no', voucher_no)
                     credit_line["Document_No"] = template_voucher_no
-                    # Set External_Document_No to include the voucher_no to ensure uniqueness
-                    if "External_Document_No" in credit_line:
-                        credit_line["External_Document_No"] = f"{template_voucher_no}-{credit_line['External_Document_No']}"
+                    # Use the original External_Document_No without modification
                     logger.info(f"Posting new consolidated credit line for voucher {template_voucher_no} with Document_No: {credit_line['Document_No']} - " +
                                f"Consolidated from {len(valid_entries)} entries")
                 
