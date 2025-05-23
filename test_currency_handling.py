@@ -122,6 +122,74 @@ class TestCurrencyHandling(unittest.TestCase):
         self.assertEqual(transform_currency_code("VCA", "NTD"), "R-NTD")  # NTD is not home currency for VCA
         self.assertEqual(transform_currency_code("VCT", "JPY"), "R-JPY")  # JPY is not home currency for VCT
         self.assertEqual(transform_currency_code("VCJ", "PHP"), "R-PHP")  # PHP is not home currency for VCJ
+        
+    def test_shortcut_dim_code4_logic(self):
+        """Test that ShortcutDimCode4 always uses applicant_code for both debit and credit lines"""
+        from process_japan_exports import create_journal_line
+        
+        # Test case 1: Entry with applicant_code present
+        test_entry_with_applicant = {
+            "voucher_no": "TEST-001",
+            "description": "Test Entry",
+            "debit": {
+                "gl_account": "G/L Account",
+                "account": "72600-10",
+                "amount": 1000,
+                "currency": "NTD",
+                "department": "VCT.1342G",
+                "applicant_code": "APP123",
+                "vendor_code": "VEND456"
+            },
+            "credit": {
+                "gl_account": "Vendor",
+                "account": "10055",
+                "amount": 1000,
+                "currency": "NTD",
+                "department": "VCT.1342G",
+                "applicant_code": "APP789",
+                "vendor_code": "VEND456"
+            }
+        }
+        
+        # Create journal lines
+        debit_line = create_journal_line(test_entry_with_applicant, "debit")
+        credit_line = create_journal_line(test_entry_with_applicant, "credit")
+        
+        # Check that applicant_code is used for ShortcutDimCode4 in both lines
+        self.assertEqual(debit_line["ShortcutDimCode4"], "APP123")
+        self.assertEqual(credit_line["ShortcutDimCode4"], "APP789")
+        
+        # Test case 2: Entry with empty applicant_code
+        test_entry_without_applicant = {
+            "voucher_no": "TEST-002",
+            "description": "Test Entry",
+            "debit": {
+                "gl_account": "G/L Account",
+                "account": "72600-10",
+                "amount": 1000,
+                "currency": "NTD",
+                "department": "VCT.1342G",
+                "applicant_code": "",
+                "vendor_code": "VEND456"
+            },
+            "credit": {
+                "gl_account": "Vendor",
+                "account": "10055",
+                "amount": 1000,
+                "currency": "NTD",
+                "department": "VCT.1342G",
+                "applicant_code": "",
+                "vendor_code": "VEND456"
+            }
+        }
+        
+        # Create journal lines
+        debit_line_empty = create_journal_line(test_entry_without_applicant, "debit")
+        credit_line_empty = create_journal_line(test_entry_without_applicant, "credit")
+        
+        # Check that ShortcutDimCode4 is empty when applicant_code is empty
+        self.assertEqual(debit_line_empty["ShortcutDimCode4"], "")
+        self.assertEqual(credit_line_empty["ShortcutDimCode4"], "")
 
 if __name__ == "__main__":
     unittest.main()

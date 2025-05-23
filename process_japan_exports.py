@@ -343,8 +343,8 @@ def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any
             description = consolidation_note
         logger.info(f"Added consolidation note to description: {description}")
     
-    # Always use vendor_code (支払先CD) for ShortcutDimCode4
-    shortcut_dim_code4 = entry_data.get("vendor_code", "")
+    # Always use applicant_code (申請者CD/支払先CD) for ShortcutDimCode4
+    shortcut_dim_code4 = entry_data.get("applicant_code", "")
     
     # Ensure shortcut_dim_code4 is not too long (max 100 chars)
     if len(shortcut_dim_code4) > 100:
