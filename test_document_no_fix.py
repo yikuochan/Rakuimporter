@@ -160,11 +160,11 @@ class TestDocumentNoFix(unittest.TestCase):
         ]
         self.assertEqual(document_nos, expected_sequence)
         
-        # Verify that External_Document_No values are correctly formatted
+        # Verify that External_Document_No values are the original values without modification
         expected_external_doc_nos = [
-            "VPA-0000119-20250402", "VPA-0000119-20250402",
-            "VPA-0000120-20250402", "VPA-0000120-20250402",
-            "VPA-0000121-20250402", "VPA-0000121-20250402"
+            "20250402", "20250402",
+            "20250402", "20250402",
+            "20250402", "20250402"
         ]
         self.assertEqual(external_document_nos, expected_external_doc_nos)
 
