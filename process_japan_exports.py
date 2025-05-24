@@ -347,9 +347,9 @@ def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any
             description = consolidation_note
         logger.info(f"Added consolidation note to description: {description}")
     
-    # Add voucher number to the beginning of the description
-    description = f"{voucher_no} - {description}"
-    logger.info(f"Added voucher number to description: {description}")
+    # Removed adding voucher number to description as per requirement
+    # description = f"{voucher_no} - {description}"
+    # logger.info(f"Added voucher number to description: {description}")
     
     # Determine ShortcutDimCode4 based on account type and source of account_no
     if entry_data.get("gl_account", "") == "Vendor":
