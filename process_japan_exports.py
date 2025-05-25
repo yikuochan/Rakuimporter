@@ -101,6 +101,8 @@ SCOPE = get_env_var(
 
 # Fixed values for journal entries
 JOURNAL_TEMPLATE_NAME = "PURCHASES"
+# for Employee expense Journal , we can set journal batch name to GEE
+# JOURNAL_BATCH_NAME = "GEE"
 JOURNAL_BATCH_NAME = "PURCHASE"
 DOCUMENT_TYPE = "Invoice"
 
@@ -352,10 +354,15 @@ def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any
     # logger.info(f"Added voucher number to description: {description}")
     
     # Determine ShortcutDimCode4 based on account type and source of account_no
-    if entry_data.get("gl_account", "") == "Vendor":
-        # For Vendor accounts, check the source of account_no
-        if entry_data.get("vendor_code") and entry_data.get("account") == entry_data.get("vendor_code"):
-            # If account_no comes from column O (支払先CD), set ShortcutDimCode4 to empty
+    if entry_data.get("gl_account", "") == "Vendor" or entry.get("credit", {}).get("gl_account", "") == "Vendor":
+        # For Vendor accounts or entries with Vendor credit, check the source of account_no
+        # For debit lines of vendor payments, we need to check the credit side's account_source
+        if entry_type == "debit" and entry.get("credit", {}).get("account_source") == "vendor_code":
+            # If the credit side's account_no comes from column O (支払先CD), set ShortcutDimCode4 to empty
+            shortcut_dim_code4 = ""
+            logger.info(f"Setting ShortcutDimCode4 to empty for debit line of Vendor payment (支払先CD) - Voucher: {entry.get('voucher_no', 'Unknown')}")
+        elif entry_type == "credit" and entry_data.get("account_source") == "vendor_code":
+            # If the credit side's account_no comes from column O (支払先CD), set ShortcutDimCode4 to empty
             shortcut_dim_code4 = ""
             logger.info(f"Setting ShortcutDimCode4 to empty for Vendor payment (支払先CD) - Voucher: {entry.get('voucher_no', 'Unknown')}")
         else:
