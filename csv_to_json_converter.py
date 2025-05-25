@@ -283,10 +283,16 @@ def convert_csv_to_json(csv_file_path, json_file_path, max_desc_length=100, fix_
             """Process vendor account data for either debit or credit side"""
             if entry_side["gl_account"] == "Vendor":
                 # For Vendor accounts, prioritize vendor_code first, then applicant_code
-                entry_side["account"] = side_data.get("支払先CD") or side_data.get("申請者CD/支払先CD") or ""
-                
-                # Update vendor_code according to new requirement: use 支払先CD, if empty use 申請者CD/支払先CD
-                entry_side["vendor_code"] = side_data.get("支払先CD") or side_data.get("申請者CD/支払先CD") or ""
+                if side_data.get("支払先CD"):
+                    # If 支払先CD (column O) has a value, use it
+                    entry_side["account"] = side_data.get("支払先CD")
+                    entry_side["vendor_code"] = side_data.get("支払先CD")
+                    entry_side["account_source"] = "vendor_code"  # New field to track source
+                else:
+                    # If 支払先CD is empty, fall back to 申請者CD/支払先CD (column N)
+                    entry_side["account"] = side_data.get("申請者CD/支払先CD") or ""
+                    entry_side["vendor_code"] = side_data.get("申請者CD/支払先CD") or ""
+                    entry_side["account_source"] = "applicant_code"  # New field to track source
                 
                 # Transform department_code for Vendor gl_account type
                 if entry_side["department_code"]:
@@ -562,7 +568,8 @@ def consolidate_entries(entries):
                         "free_field": template_entry["credit"]["free_field"],
                         "department_code": template_entry["credit"]["department_code"],
                         "consolidated": True,
-                        "original_entries_count": len(vendor_entries)
+                        "original_entries_count": len(vendor_entries),
+                        "account_source": template_entry["credit"].get("account_source", "")
                     }
                 }
                 
