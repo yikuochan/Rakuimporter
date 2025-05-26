@@ -13,11 +13,56 @@ This section describes the components and their interactions within the CSV proc
 ``` mermaid
 info
 
+
+graph TD
+    %% Main Data Flow
+    CSV[Incoming CSV Files<br>Various Encodings] --> CC[charset_converter.py]
+    CC -->|UTF-8 CSV Files| CSVJSON[csv_to_json_converter.py]
+    CSVJSON -->|Structured JSON| PJE[process_japan_exports.py]
+    PJE -->|Authenticated API Calls| ERP[ERP System<br>Microsoft Dynamics BC]
+    
+    %% Authentication Flow
+    OTH[oauth_token_helper.py] -->|OAuth Token| PJE
+    
+    %% Currency Conversion Flow
+    ERA[exchange_rate_api.py] -->|Exchange Rates| PJE
+    
+    %% Subprocesses
+    subgraph "charset_converter.py"
+        CC1[Detect Encoding] --> CC2[Convert to UTF-8]
+        CC2 --> CC3[Validate Conversion]
+    end
+    
+    subgraph "csv_to_json_converter.py"
+        CSV1[Fix Line Breaks] --> CSV2[Process Headers]
+        CSV2 --> CSV3[Process Debit/Credit Pairs]
+        CSV3 --> CSV4[Normalize Currency]
+        CSV4 --> CSV5[Consolidate Entries]
+    end
+    
+    subgraph "process_japan_exports.py"
+        PJE1[Create Journal Lines] --> PJE2[Transform Currency]
+        PJE2 --> PJE3[Post to API with Rate Limiting]
+        PJE3 --> PJE4[Generate Reports]
+    end
+    
+    subgraph "oauth_token_helper.py"
+        OTH1[Acquire Token] --> OTH2[Handle SSL Verification]
+        OTH2 --> OTH3[Provide Authorization Header]
+    end
+    
+    subgraph "exchange_rate_api.py"
+        ERA1[Get Company Rates] --> ERA2[Find Rate]
+        ERA2 --> ERA3[Calculate Cross-Rates]
+    end
+
+```
+
 Incoming CSV files --> [charset_converter.py] --UTF-8 CSV--> [csv_to_json_converter.py] --Structured JSON--> [process_japan_exports.py] --Authenticated API Calls--> [ERP System (Microsoft Dynamics BC)]
                                                                                                                                         ^
                                                                                                                                         |
                                                                                                                               [oauth_token_helper.py] --OAuth Token-->
-```
+
 
 ## Component Descriptions
 
