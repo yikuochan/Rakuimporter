@@ -90,7 +90,7 @@ TOKEN_URL = get_env_var(
 )
 API_URL = get_env_var(
     "ERP_API_URL", 
-    default="https://api.businesscentral.dynamics.com/v2.0/6b83c27c-aa6d-475a-9933-5c34bb008d73/Production/ODataV4/Company('VCT')/PurchaseJournals"
+    default="https://api.businesscentral.dynamics.com/v2.0/6b83c27c-aa6d-475a-9933-5c34bb008d73/Staging/ODataV4/Company('VCT')/PurchaseJournals"
 )
 CLIENT_ID = get_env_var("ERP_CLIENT_ID", required=True)
 CLIENT_SECRET = get_env_var("ERP_CLIENT_SECRET", required=True)
@@ -102,8 +102,8 @@ SCOPE = get_env_var(
 # Fixed values for journal entries
 JOURNAL_TEMPLATE_NAME = "PURCHASES"
 # for Employee expense Journal , we can set journal batch name to GEE
-# JOURNAL_BATCH_NAME = "GEE"
-JOURNAL_BATCH_NAME = "PURCHASE"
+JOURNAL_BATCH_NAME = "GEE"
+# JOURNAL_BATCH_NAME = "PURCHASE"
 DOCUMENT_TYPE = "Invoice"
 
 
@@ -336,17 +336,52 @@ def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any
     # Get original amount
     original_amount = entry_data["amount"] if entry_type == "debit" else -entry_data["amount"]
     
-    # Add voucher number to description
-    description = entry.get("description", "")
+    # Get the appropriate description based on entry type
+    if entry_type == "debit":
+        # For debit line, first check Receipt/Invoice Note(明細) (R column), then フリー２(明細) (Q column)
+        description = entry_data.get("Receipt/Invoice Note(明細)", "") or entry_data.get("free_field", "")
+        logger.info(f"Debit description sources - Receipt/Invoice Note(明細): '{entry_data.get('Receipt/Invoice Note(明細)', '')}', free_field: '{entry_data.get('free_field', '')}'")
+        logger.info(f"Final debit description: '{description}'")
+    else:  # credit
+        # For credit line, use Remarks (備考) (U column)
+        # First check if there's a Remarks field directly in the credit data (for consolidated entries)
+        description = entry_data.get("Remarks", "") or entry_data.get("備考", "")
+        
+        # If no 備考 field in credit data, check if there's a credit_description field in the entry
+        if not description and "credit_description" in entry:
+            description = entry.get("credit_description", "")
+            
+        logger.info(f"Credit description source - Remarks (備考): '{description}'")
+        logger.info(f"Final credit description: '{description}'")
+    
     voucher_no = entry.get("voucher_no", "Unknown")
     
     # Add a note for consolidated entries
     if entry_type == "credit" and entry_data.get("consolidated", False):
         consolidation_note = entry_data.get("consolidation_note", f"Consolidated from {entry_data.get('original_entries_count', 1)} entries")
-        if description and len(description) + len(consolidation_note) + 3 <= 100:  # +3 for " - "
-            description = f"{description} - {consolidation_note}"
-        elif len(consolidation_note) <= 100:
+        
+        # Always include the description if available, even if we need to truncate it
+        if description:
+            # Calculate available space for description
+            available_space = 100 - len(consolidation_note) - 3  # 3 for " - "
+            
+            if available_space > 0:
+                # Truncate description if needed
+                if len(description) > available_space:
+                    truncated_description = description[:available_space]
+                    logger.info(f"Truncated description from {len(description)} to {available_space} characters")
+                    description = f"{truncated_description} - {consolidation_note}"
+                else:
+                    description = f"{description} - {consolidation_note}"
+            else:
+                # If consolidation note is too long, truncate it
+                available_space = 100 - 3  # 3 for " - "
+                truncated_note = consolidation_note[:available_space - len(description)]
+                description = f"{description} - {truncated_note}"
+        else:
+            # If no description, just use consolidation note
             description = consolidation_note
+            
         logger.info(f"Added consolidation note to description: {description}")
     
     # Removed adding voucher number to description as per requirement
@@ -583,6 +618,15 @@ class RateLimiter:
 
 def post_journal_line(journal_line: Dict[str, Any], access_token: str, 
                      rate_limiter: RateLimiter = None, max_retries: int = 3) -> Tuple[bool, Dict[str, Any]]:
+    # Ensure the description field is populated
+    if not journal_line.get("Description"):
+        # Get the document number for logging
+        doc_no = journal_line.get("Document_No", "Unknown")
+        logger.warning(f"Description field is empty for Document_No: {doc_no}. Setting default description.")
+        
+        # Set a default description based on the document number
+        journal_line["Description"] = f"Transaction for {doc_no}"
+    
     """
     Post a journal line to the ERP API with rate limiting and retry logic.
     
@@ -611,7 +655,7 @@ def post_journal_line(journal_line: Dict[str, Any], access_token: str,
         
         if company_code:
             # Construct the API URL with the company code
-            base_url = "https://api.businesscentral.dynamics.com/v2.0/6b83c27c-aa6d-475a-9933-5c34bb008d73/Production/ODataV4/Company"
+            base_url = "https://api.businesscentral.dynamics.com/v2.0/6b83c27c-aa6d-475a-9933-5c34bb008d73/Staging/ODataV4/Company"
             api_url = f"{base_url}('{company_code}')/PurchaseJournals"
             logger.info(f"Using company-specific API URL for {company_code}: {api_url}")
     

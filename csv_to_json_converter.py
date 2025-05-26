@@ -270,7 +270,9 @@ def convert_csv_to_json(csv_file_path, json_file_path, max_desc_length=100, fix_
             "transaction_date": debit_data.get("仕訳日") or credit_data.get("仕訳日") or "",
             "application_date": debit_data.get("申請日") or credit_data.get("申請日") or "",
             "journal_generation_date": debit_data.get("仕訳データ生成日") or credit_data.get("仕訳データ生成日") or "",
-            "description": truncate_description(debit_data.get("Receipt/Invoice Note(明細)") or credit_data.get("Receipt/Invoice Note(明細)") or "", max_desc_length),
+            "debit_description": truncate_description(debit_data.get("Receipt/Invoice Note(明細)") or debit_data.get("フリー２(明細)") or "", max_desc_length),
+            "credit_description": truncate_description(credit_data.get("Remarks") or credit_data.get("備考") or "", max_desc_length),
+            "description": truncate_description(debit_data.get("Receipt/Invoice Note(明細)") or debit_data.get("フリー２(明細)") or "", max_desc_length), # Default to debit description
             "note": debit_data.get("Note(明細)") or credit_data.get("Note(明細)") or "",
             "receipt_invoice": debit_data.get("Receipt/Invoice #(明細)") or credit_data.get("Receipt/Invoice #(明細)") or "",
             "External_Document_No": external_doc_no,  # Use the unique External_Document_No
@@ -567,6 +569,7 @@ def consolidate_entries(entries):
                     "application_date": template_entry["application_date"],
                     "journal_generation_date": template_entry["journal_generation_date"],
                     "description": template_entry["description"],
+                    "credit_description": template_entry["credit_description"],  # Add credit_description field
                     "note": template_entry["note"],
                     "receipt_invoice": template_entry["receipt_invoice"],
                     "External_Document_No": consolidated_external_doc_no,
@@ -596,6 +599,7 @@ def consolidate_entries(entries):
                         "vendor_code": vendor_code if vendor_code != "UNKNOWN" else "",
                         "free_field": template_entry["credit"]["free_field"],
                         "department_code": template_entry["credit"]["department_code"],
+                        "Remarks": template_entry["credit"].get("Remarks", "") or template_entry["credit"].get("備考", ""),  # Add Remarks field (translated from 備考) from template entry
                         "consolidated": True,
                         "original_entries_count": len(vendor_entries),
                         "account_source": template_entry["credit"].get("account_source", "")
