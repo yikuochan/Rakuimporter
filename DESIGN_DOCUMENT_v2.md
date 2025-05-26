@@ -54,12 +54,6 @@ graph TD
     end
 ```
 
-Incoming CSV files --> [charset_converter.py] --UTF-8 CSV--> [csv_to_json_converter.py] --Structured JSON--> [process_japan_exports.py] --Authenticated API Calls--> [ERP System (Microsoft Dynamics BC)]
-                                                                                                                                        ^
-                                                                                                                                        |
-                                                                                                                              [oauth_token_helper.py] --OAuth Token-->
-
-
 ## Component Descriptions
 
 *   **`charset_converter.py`**:
