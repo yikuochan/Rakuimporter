@@ -338,9 +338,9 @@ def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any
     
     # Get the appropriate description based on entry type
     if entry_type == "debit":
-        # For debit line, first check Receipt/Invoice Note(明細) (R column), then フリー２(明細) (Q column)
-        description = entry_data.get("Receipt/Invoice Note(明細)", "") or entry_data.get("free_field", "")
-        logger.info(f"Debit description sources - Receipt/Invoice Note(明細): '{entry_data.get('Receipt/Invoice Note(明細)', '')}', free_field: '{entry_data.get('free_field', '')}'")
+        # For debit line, first check main description, then Receipt/Invoice Note(明細) (R column), then フリー２(明細) (Q column)
+        description = entry.get("description", "") or entry_data.get("Receipt/Invoice Note(明細)", "") or entry_data.get("free_field", "")
+        logger.info(f"Debit description sources - Main description: '{entry.get('description', '')}', Receipt/Invoice Note(明細): '{entry_data.get('Receipt/Invoice Note(明細)', '')}', free_field: '{entry_data.get('free_field', '')}'")
         logger.info(f"Final debit description: '{description}'")
     else:  # credit
         # For credit line, use Remarks (備考) (U column)
@@ -351,38 +351,19 @@ def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any
         if not description and "credit_description" in entry:
             description = entry.get("credit_description", "")
             
+        # If still no description, use the main description field
+        if not description:
+            description = entry.get("description", "")
+            
         logger.info(f"Credit description source - Remarks (備考): '{description}'")
         logger.info(f"Final credit description: '{description}'")
     
     voucher_no = entry.get("voucher_no", "Unknown")
     
-    # Add a note for consolidated entries
+    # For consolidated credit entries, just use the description without adding consolidation note
     if entry_type == "credit" and entry_data.get("consolidated", False):
-        consolidation_note = entry_data.get("consolidation_note", f"Consolidated from {entry_data.get('original_entries_count', 1)} entries")
-        
-        # Always include the description if available, even if we need to truncate it
-        if description:
-            # Calculate available space for description
-            available_space = 100 - len(consolidation_note) - 3  # 3 for " - "
-            
-            if available_space > 0:
-                # Truncate description if needed
-                if len(description) > available_space:
-                    truncated_description = description[:available_space]
-                    logger.info(f"Truncated description from {len(description)} to {available_space} characters")
-                    description = f"{truncated_description} - {consolidation_note}"
-                else:
-                    description = f"{description} - {consolidation_note}"
-            else:
-                # If consolidation note is too long, truncate it
-                available_space = 100 - 3  # 3 for " - "
-                truncated_note = consolidation_note[:available_space - len(description)]
-                description = f"{description} - {truncated_note}"
-        else:
-            # If no description, just use consolidation note
-            description = consolidation_note
-            
-        logger.info(f"Added consolidation note to description: {description}")
+        # Use the description as is, without adding the consolidation note
+        logger.info(f"Using description without consolidation note for consolidated entry: {description}")
     
     # Removed adding voucher number to description as per requirement
     # description = f"{voucher_no} - {description}"
