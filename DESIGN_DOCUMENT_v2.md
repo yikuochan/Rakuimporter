@@ -10,7 +10,9 @@ This section describes the components and their interactions within the CSV proc
 
 ## High-Level Diagram
 
-```
+``` mermaid
+info
+
 Incoming CSV files --> [charset_converter.py] --UTF-8 CSV--> [csv_to_json_converter.py] --Structured JSON--> [process_japan_exports.py] --Authenticated API Calls--> [ERP System (Microsoft Dynamics BC)]
                                                                                                                                         ^
                                                                                                                                         |
