@@ -301,7 +301,9 @@ def convert_csv_to_json(csv_file_path, json_file_path, max_desc_length=100, fix_
                 "applicant_code": credit_data.get("申請者CD/支払先CD") or "",
                 "vendor_code": credit_data.get("支払先CD") or "",
                 "free_field": credit_data.get("フリー２(明細)") or "",
-                "department_code": credit_data.get("借方：負担部門コード") or ""
+                "department_code": credit_data.get("借方：負担部門コード") or "",
+                "Remarks": credit_data.get("Remarks") or credit_data.get("備考") or "",
+                "Remarks": credit_data.get("Remarks") or credit_data.get("備考") or ""
             }
         }
         
@@ -559,9 +561,8 @@ def consolidate_entries(entries):
                                 pass
                 
                 # Create a consolidated credit entry
-                # Generate a unique External_Document_No for the consolidated entry
-                base_external_doc_no = template_entry["External_Document_No"]
-                consolidated_external_doc_no = f"{base_external_doc_no}-consolidated"
+                # Use the original External_Document_No without adding "-consolidated" postfix
+                consolidated_external_doc_no = template_entry["External_Document_No"]
                 
                 consolidated_credit_entry = {
                     "voucher_no": template_entry["voucher_no"],
@@ -599,7 +600,7 @@ def consolidate_entries(entries):
                         "vendor_code": vendor_code if vendor_code != "UNKNOWN" else "",
                         "free_field": template_entry["credit"]["free_field"],
                         "department_code": template_entry["credit"]["department_code"],
-                        "Remarks": template_entry["credit"].get("Remarks", "") or template_entry["credit"].get("備考", ""),  # Add Remarks field (translated from 備考) from template entry
+                        "Remarks": template_entry["credit_description"] or template_entry["credit"].get("Remarks", "") or template_entry["credit"].get("備考", ""),  # Add Remarks field (translated from 備考) from template entry
                         "consolidated": True,
                         "original_entries_count": len(vendor_entries),
                         "account_source": template_entry["credit"].get("account_source", "")
