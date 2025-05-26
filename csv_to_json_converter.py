@@ -34,6 +34,7 @@ import logging
 import collections
 import os
 import tempfile
+import time  # Added for timestamp generation
 from currency_converter import convert_amount, get_region_currency
 
 # Configure logging
@@ -222,6 +223,9 @@ def convert_csv_to_json(csv_file_path, json_file_path, max_desc_length=100, fix_
         else:
             combined_header.append(f"Column_{i}")
     
+    # Track External_Document_No occurrences to ensure uniqueness
+    external_doc_no_counter = {}
+    
     # Process data rows
     raw_entries = []
     i = 2  # Start after the header rows
@@ -239,6 +243,27 @@ def convert_csv_to_json(csv_file_path, json_file_path, max_desc_length=100, fix_
         debit_data = dict(zip(combined_header, debit_line))
         credit_data = dict(zip(combined_header, credit_line))
         
+        # Get External_Document_No from column S "Receipt/Invoice No.(明細)"
+        external_doc_no = debit_data.get("Receipt/Invoice No.(明細)") or credit_data.get("Receipt/Invoice No.(明細)") or ""
+        
+        # If column S is empty, use column C "仕訳日" (transaction date)
+        if not external_doc_no:
+            external_doc_no = debit_data.get("仕訳日") or credit_data.get("仕訳日") or ""
+        
+        # If still empty, use "Empty-{timestamp in milliseconds}"
+        if not external_doc_no:
+            external_doc_no = f"Empty-{int(time.time() * 1000)}"
+            logger.info(f"Using generated External_Document_No for empty value: {external_doc_no}")
+        
+        # Make External_Document_No unique if it's a duplicate
+        original_external_doc_no = external_doc_no
+        if external_doc_no in external_doc_no_counter:
+            external_doc_no_counter[original_external_doc_no] += 1
+            external_doc_no = f"{original_external_doc_no}-{external_doc_no_counter[original_external_doc_no]}"
+            logger.info(f"Made External_Document_No unique: {original_external_doc_no} -> {external_doc_no}")
+        else:
+            external_doc_no_counter[original_external_doc_no] = 1
+        
         # Extract common fields for the journal entry
         entry = {
             "voucher_no": debit_data.get("伝票No.") or credit_data.get("伝票No.") or "",
@@ -248,7 +273,7 @@ def convert_csv_to_json(csv_file_path, json_file_path, max_desc_length=100, fix_
             "description": truncate_description(debit_data.get("Receipt/Invoice Note(明細)") or credit_data.get("Receipt/Invoice Note(明細)") or "", max_desc_length),
             "note": debit_data.get("Note(明細)") or credit_data.get("Note(明細)") or "",
             "receipt_invoice": debit_data.get("Receipt/Invoice #(明細)") or credit_data.get("Receipt/Invoice #(明細)") or "",
-            "External_Document_No": debit_data.get("Receipt/Invoice No.(明細)") or credit_data.get("Receipt/Invoice No.(明細)") or debit_data.get("仕訳日") or credit_data.get("仕訳日") or "",
+            "External_Document_No": external_doc_no,  # Use the unique External_Document_No
             "Document_Date": debit_data.get("仕訳日") or credit_data.get("仕訳日") or "",
             "debit": {
                 "marker": debit_data.get("勘定奉行：伝票区切") or "",
@@ -532,6 +557,10 @@ def consolidate_entries(entries):
                                 pass
                 
                 # Create a consolidated credit entry
+                # Generate a unique External_Document_No for the consolidated entry
+                base_external_doc_no = template_entry["External_Document_No"]
+                consolidated_external_doc_no = f"{base_external_doc_no}-consolidated"
+                
                 consolidated_credit_entry = {
                     "voucher_no": template_entry["voucher_no"],
                     "transaction_date": template_entry["transaction_date"],
@@ -540,7 +569,7 @@ def consolidate_entries(entries):
                     "description": template_entry["description"],
                     "note": template_entry["note"],
                     "receipt_invoice": template_entry["receipt_invoice"],
-                    "External_Document_No": template_entry["External_Document_No"],
+                    "External_Document_No": consolidated_external_doc_no,
                     "Document_Date": template_entry["Document_Date"],
                     "debit": {
                         "marker": "",
