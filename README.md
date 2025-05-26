@@ -1,6 +1,154 @@
-# Power Importer - CSV Processing Tools
+# Power Importer - ERP Integration System
 
-This repository contains tools for processing CSV files from various sources, including files with Japanese character encodings.
+This repository contains a system for processing CSV files from Japanese sources, converting them to structured JSON, and integrating with Microsoft Dynamics Business Central ERP.
+
+## System Overview
+
+The Power Importer system processes financial data through the following pipeline:
+
+1. **Character Set Conversion**: Converts CSV files from various encodings (e.g., Shift-JIS) to UTF-8
+2. **CSV to JSON Transformation**: Converts UTF-8 CSV files to structured JSON format
+3. **ERP Integration**: Posts the JSON data to Microsoft Dynamics Business Central as journal entries
+
+### High-Level Data Flow
+
+```
+Incoming CSV Files --> [charset_converter.py] --UTF-8 CSV--> [csv_to_json_converter.py] --Structured JSON--> [process_japan_exports.py] --Authenticated API Calls--> [ERP System (Microsoft Dynamics BC)]
+                                                                                                                                        ^
+                                                                                                                                        |
+                                                                                                                              [oauth_token_helper.py] --OAuth Token-->
+```
+
+## Setup Instructions
+
+### Python Environment Setup
+
+1. **Create a virtual environment**:
+   ```bash
+   # Create a virtual environment
+   python -m venv venv
+   
+   # Activate the virtual environment
+   # On Windows:
+   venv\Scripts\activate
+   # On macOS/Linux:
+   source venv/bin/activate
+   ```
+
+2. **Install required packages**:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+3. **Configure environment variables**:
+   ```bash
+   # Copy the example environment file
+   cp .env.example .env
+   
+   # Edit the .env file with your actual values
+   # Required variables:
+   # - ERP_CLIENT_ID: Azure AD client ID
+   # - ERP_CLIENT_SECRET: Azure AD client secret
+   # - ERP_TOKEN_URL: OAuth token endpoint URL
+   # - ERP_API_URL: Business Central API base URL
+   # - ERP_SCOPE: API scope (usually https://api.businesscentral.dynamics.com/.default)
+   ```
+
+## Key Components
+
+### 1. charset_converter.py
+
+Converts files from non-UTF-8 encodings (like Shift-JIS or other Japanese encodings) to UTF-8 format.
+
+#### Usage
+
+```bash
+python charset_converter.py input_file [output_file] [--encoding encoding] [--force] [--japanese]
+```
+
+#### Arguments
+
+- `input_file`: Path to the file you want to convert
+- `output_file` (optional): Path where the converted file will be saved
+- `--encoding`: Manually specify the source encoding
+- `--force`: Force conversion even if validation fails
+- `--japanese`: Optimize for Japanese text detection
+
+#### Example
+
+```bash
+python charset_converter.py "Raku export.csv" "Raku export-utf8.csv"
+```
+
+### 2. csv_to_json_converter.py
+
+Converts UTF-8 encoded CSV files to a structured JSON format, handling two-line headers, debit/credit pairs, and applying business rules.
+
+#### Usage
+
+```bash
+python csv_to_json_converter.py -i INPUT_FILE -o OUTPUT_FILE [--max-desc-length LENGTH] [--no-fix-line-breaks] [--line-break-replacement CHAR]
+```
+
+#### Arguments
+
+- `-i, --input`: Input CSV file path
+- `-o, --output`: Output JSON file path
+- `--max-desc-length`: Maximum length for description field (default: 100)
+- `--no-fix-line-breaks`: Disable fixing line breaks in CSV fields
+- `--line-break-replacement`: Character to replace line breaks with (default: space)
+
+#### Example
+
+```bash
+python csv_to_json_converter.py -i "Raku export-utf8.csv" -o "Raku export.json"
+```
+
+### 3. process_japan_exports.py
+
+Processes structured JSON data and posts it to Microsoft Dynamics Business Central as journal entries.
+
+#### Usage
+
+```bash
+python process_japan_exports.py INPUT_JSON_FILE [--report REPORT_FILE] [--unbalanced-report REPORT_FILE] [--balance-tolerance TOLERANCE] [--skip-unbalanced] [--dry-run]
+```
+
+#### Arguments
+
+- `input_file`: Path to the input JSON file
+- `--report`: Generate currency modification report to specified file path
+- `--unbalanced-report`: Generate unbalanced entries report to specified file path
+- `--balance-tolerance`: Acceptable difference between debit and credit amounts
+- `--skip-unbalanced`: Skip unbalanced entries instead of posting them
+- `--dry-run`: Generate report only without posting to API
+
+#### Example
+
+```bash
+python process_japan_exports.py "Raku export.json"
+```
+
+### 4. oauth_token_helper.py
+
+Handles OAuth 2.0 authentication with Microsoft Azure AD for accessing the Business Central API.
+
+### 5. exchange_rate_api.py
+
+Manages currency exchange rate calculations and retrieval from the Business Central API.
+
+## Complete Workflow Example
+
+```bash
+# 1. Convert CSV from original encoding to UTF-8
+python charset_converter.py "Raku export.csv" "Raku export-utf8.csv"
+
+# 2. Convert UTF-8 CSV to structured JSON
+python csv_to_json_converter.py -i "Raku export-utf8.csv" -o "Raku export.json"
+
+# 3. Process JSON and post to ERP
+python process_japan_exports.py "Raku export.json"
+```
 
 ## Security Best Practices
 
@@ -19,137 +167,55 @@ This project follows security best practices for handling sensitive data:
 
 2. Edit the `.env` file to add your sensitive data:
    ```
-   ERP_API_KEY=your_actual_api_key
-   DB_PASSWORD=your_actual_password
+   ERP_CLIENT_ID=your_client_id
+   ERP_CLIENT_SECRET=your_client_secret
+   ERP_TOKEN_URL=https://login.microsoftonline.com/your_tenant_id/oauth2/v2.0/token
+   ERP_API_URL=https://api.businesscentral.dynamics.com/v2.0/your_tenant_id/your_environment/api/v2.0
+   ERP_SCOPE=https://api.businesscentral.dynamics.com/.default
    ```
 
 3. In your code, use the `env_config.py` utility to access these values:
    ```python
    from env_config import get_env_var
    
-   # Get a simple string value
-   api_key = get_env_var("ERP_API_KEY")
-   
    # Get a required value (raises error if not set)
-   password = get_env_var("DB_PASSWORD", required=True)
+   client_id = get_env_var("ERP_CLIENT_ID", required=True)
    
    # Get a value with a default
-   host = get_env_var("DB_HOST", default="localhost")
-   
-   # Get a value as a specific type
-   debug = get_env_var("DEBUG_MODE", default="False", as_type=bool)
-   port = get_env_var("DB_PORT", default="5432", as_type=int)
+   api_url = get_env_var("ERP_API_URL", default="https://api.businesscentral.dynamics.com")
    ```
 
-4. For production deployment, set actual environment variables in your environment instead of using a `.env` file.
+## Error Handling and Recovery
 
-## Tools Overview
+### Common Error Scenarios
 
-1. **csv_to_json_converter.py** - Converts General Journal CSV files to structured JSON format
-2. **charset_converter.py** - Converts files from non-UTF-8 encodings (like Shift-JIS) to UTF-8
-3. **process_japan_exports.py** - Batch processes files from the Japan team (conversion + JSON processing)
+1. **Encoding Detection Failures**:
+   ```bash
+   # Manually specify encoding
+   python charset_converter.py input.csv output_utf8.csv --encoding shift_jis
+   
+   # Force conversion despite validation issues
+   python charset_converter.py input.csv output_utf8.csv --encoding shift_jis --force
+   ```
 
-## CSV to JSON Converter
+2. **CSV Parsing Errors**:
+   - Ensure the CSV has the expected two-line header
+   - Check for line break issues in fields
+   - Manually inspect the CSV in a text editor
 
-The `csv_to_json_converter.py` script converts General Journal CSV files to a structured JSON format.
+3. **Unbalanced Entries**:
+   ```bash
+   # Adjust tolerance for small differences
+   python process_japan_exports.py data.json --balance-tolerance 0.05
+   
+   # Skip unbalanced entries
+   python process_japan_exports.py data.json --skip-unbalanced
+   ```
 
-### Features
-
-- Handles multi-line headers in the CSV file
-- Processes debit and credit pairs in the journal entries
-- Extracts and organizes relevant accounting fields
-- Converts numeric values where appropriate
-- Normalizes currency values ("台湾ドル" -> "NTD", "円" -> "JPY")
-- Preserves Japanese characters with proper UTF-8 encoding
-
-**Note:** This script expects input files to be in UTF-8 encoding. For files with other encodings, use the charset_converter.py script first.
-
-### Usage
-
-```bash
-python csv_to_json_converter.py [-i INPUT_FILE] [-o OUTPUT_FILE]
-```
-
-#### Command-line Arguments
-
-- `-i, --input`: Input CSV file path (default: "Raku export.csv")
-- `-o, --output`: Output JSON file path (default: "journal_entries.json")
-
-#### Examples
-
-Use default file names:
-```bash
-python csv_to_json_converter.py
-```
-
-Specify input file:
-```bash
-python csv_to_json_converter.py -i my_export.csv
-```
-
-Specify both input and output files:
-```bash
-python csv_to_json_converter.py -i my_export.csv -o my_output.json
-```
-
-## Charset Converter
-
-The `charset_converter.py` script converts files from non-UTF-8 encodings (like Shift-JIS or other Japanese encodings) to UTF-8 format.
-
-### Features
-
-- Automatic encoding detection using the `chardet` library
-- Fallback to common Japanese encodings if detection confidence is low
-- Handles various Japanese encodings (Shift-JIS, EUC-JP, ISO-2022-JP, CP932)
-- Creates a new file with UTF-8 encoding, preserving the original file
-
-### Requirements
-
-- Python 3.x
-- `chardet` library (install with `pip install chardet` in a virtual environment)
-
-### Usage
-
-```bash
-python charset_converter.py input_file [output_file]
-```
-
-#### Arguments
-
-- `input_file`: Path to the file you want to convert
-- `output_file` (optional): Path where the converted file will be saved. If not specified, the script will create a file with the same name as the input file but with "_utf8" appended before the extension.
-
-#### Examples
-
-Convert a file and let the script name the output file:
-```bash
-python charset_converter.py "Evelyn Raku export.csv"
-```
-This will create a file named "Evelyn Raku export_utf8.csv"
-
-## Batch Processing Script
-
-The `process_japan_exports.py` script automates the workflow of:
-1. Converting files from non-UTF-8 charset to UTF-8
-2. Processing the converted files with csv_to_json_converter.py
-
-### Usage
-
-```bash
-python process_japan_exports.py file1.csv [file2.csv ...]
-```
-
-#### Examples
-
-Process a single file:
-```bash
-python process_japan_exports.py "Evelyn Raku export.csv"
-```
-
-Process multiple files:
-```bash
-python process_japan_exports.py "Evelyn Raku export.csv" "Raku export.csv"
-```
+4. **API Authentication Issues**:
+   - Verify ERP_CLIENT_ID and ERP_CLIENT_SECRET in .env
+   - Check that the token URL is correct
+   - Ensure the application has proper permissions in Azure AD
 
 ## Output Format
 
@@ -172,56 +238,56 @@ Example:
     "receipt_invoice": "",
     "debit": {
       "marker": "",
-      "gl_account": "G/L Account",
-      "account": "",
-      "sub_account": "73300-14",
+      "gl_account_type": "G/L Account",
+      "account": "73300-14",
+      "main_account_code": "73300",
+      "sub_account_code": "73300-14",
+      "account_name": "飲食費(社内会議等)・10%",
       "amount": 785.0,
-      "currency": "台湾ドル",
+      "currency": "NTD",
       "department": "VCT.1692G",
       "applicant_code": "10017",
       "vendor_code": "",
-      "free_field": "Lunch Meeting with HR and RD Managers",
+      "description": "Lunch Meeting with HR and RD Managers",
       "department_code": "VCT.1692"
     },
     "credit": {
       "marker": "",
-      "gl_account": "Vendor",
+      "gl_account_type": "Vendor",
       "account": "32200-10",
-      "sub_account": "32200-10",
+      "main_account_code": "32200",
+      "sub_account_code": "32200-10",
+      "account_name": "未払金",
       "amount": 785.0,
-      "currency": "台湾ドル",
+      "currency": "NTD",
       "department": "VCT.1692G",
       "applicant_code": "10017",
-      "vendor_code": "",
-      "free_field": "",
-      "department_code": ""
+      "vendor_code": "V0001",
+      "description": "",
+      "department_code": "VCT.9999"
     }
-  },
-  // More journal entries...
+  }
 ]
 ```
 
-## Workflow for Processing Japan Team Files
+## For More Information
 
-1. **For a single file:**
-   ```bash
-   # Convert encoding
-   python charset_converter.py "Japan_export.csv"
-   
-   # Process the converted file
-   python csv_to_json_converter.py -i "Japan_export_utf8.csv" -o "japan_data.json"
-   ```
+For detailed technical documentation, refer to the `Design Document TOI.md` file in this repository, which provides comprehensive information about:
 
-2. **For batch processing:**
-   ```bash
-   # Process multiple files at once
-   python process_japan_exports.py "Japan_export1.csv" "Japan_export2.csv"
-   ```
+- System architecture and component interactions
+- Data validation strategies
+- Rate limiting implementation
+- Exchange rate handling
+- Consolidated entries logic
+- Authentication and authorization
+- Error handling and logging
+- Monitoring recommendations
 
-## Error Handling
+## Requirements
 
-All scripts include error handling for common issues:
-
-- If input files don't exist, they will display appropriate error messages
-- The charset_converter.py script will try multiple encodings if the initial detection fails
-- The process_japan_exports.py script provides a summary of successful and failed file processing
+- Python 3.8+
+- Required packages (see requirements.txt):
+  - chardet
+  - python-dotenv
+  - requests
+  - pandas (optional, for some utilities)
