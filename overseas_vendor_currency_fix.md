@@ -63,6 +63,7 @@ For vendor V-VC00048 (APA-0000404):
 ## Affected Files
 
 - `process_japan_exports.py`: Modified to add special handling for overseas vendors.
+- `csv_to_json_converter.py`: Updated to preserve original currency and amount for overseas vendors during consolidation.
 - `test_overseas_vendor_currency.py`: Created to test the changes.
 
 ## Next Steps
