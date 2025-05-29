@@ -102,8 +102,8 @@ SCOPE = get_env_var(
 # Fixed values for journal entries
 JOURNAL_TEMPLATE_NAME = "PURCHASES"
 # for Employee expense Journal , we can set journal batch name to GEE
-JOURNAL_BATCH_NAME = "GEE"
-# JOURNAL_BATCH_NAME = "PURCHASE"
+# JOURNAL_BATCH_NAME = "GEE"
+JOURNAL_BATCH_NAME = "PURCHASE"
 DOCUMENT_TYPE = "Invoice"
 
 

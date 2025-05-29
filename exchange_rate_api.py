@@ -40,7 +40,7 @@ class ExchangeRateAPI:
         )
         
         # Base URL for API calls
-        self.base_url = f"https://api.businesscentral.dynamics.com/v2.0/{self.tenant_id}/Production/ODataV4"
+        self.base_url = f"https://api.businesscentral.dynamics.com/v2.0/{self.tenant_id}/Staging/ODataV4"
         
         # Cache for exchange rates to minimize API calls
         self.rate_cache = {}
