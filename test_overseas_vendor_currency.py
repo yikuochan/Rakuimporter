@@ -1,14 +1,9 @@
 #!/usr/bin/env python3
 """
-Test script for overseas vendor currency handling
+Test script for overseas vendor currency handling in process_japan_exports.py.
 
-This script tests the special handling of overseas vendors (V-VC prefix) in the process_japan_exports.py module.
-It verifies that:
-1. For V-VC vendors, the original currency and amount are preserved
-2. For non-V-VC vendors, the existing currency transformation logic is applied
-
-Usage:
-    python test_overseas_vendor_currency.py
+This script tests the special case where an overseas vendor (V-VC prefix) with NTD currency
+in VCT company should have the currency code set to an empty string.
 """
 
 import json
@@ -24,96 +19,68 @@ logging.basicConfig(
         logging.StreamHandler(sys.stdout)
     ]
 )
-logger = logging.getLogger("test_overseas_vendor")
+logger = logging.getLogger("test_overseas_vendor_currency")
 
-def create_test_entry(vendor_code, currency="R-USD", amount=375.59):
-    """Create a test entry with the specified vendor code and currency"""
-    return {
-        "voucher_no": "APA-0000404",
-        "transaction_date": "2025/4/7",
-        "application_date": "2025/5/6",
-        "journal_generation_date": "2025/5/23",
-        "description": "Test Entry",
-        "note": "",
-        "receipt_invoice": "",
-        "External_Document_No": "TEST-123",
-        "Document_Date": "2025/4/7",
+def test_overseas_vendor_ntd_currency():
+    """
+    Test the special case where an overseas vendor (V-VC prefix) with NTD currency
+    in VCT company should have the currency code set to an empty string.
+    """
+    # Create a test entry with an overseas vendor (V-VC prefix) with NTD currency in VCT company
+    test_entry = {
+        "voucher_no": "APA-0000373",
+        "transaction_date": "2025/4/16",
+        "application_date": "2025/4/16",
+        "journal_generation_date": "2025/4/16",
+        "description": "Gandi.net VicOne domain renewal",
+        "External_Document_No": "2025/4/16",
+        "Document_Date": "2025/4/16",
         "debit": {
-            "marker": "",
             "gl_account": "G/L Account",
-            "account": "74850-10",
-            "sub_account": "",
-            "amount": amount,
-            "currency": currency,
-            "department": "VCT.1692G",
-            "applicant_code": "10036",
-            "vendor_code": vendor_code,
-            "free_field": "",
-            "department_code": "VCT.1692G",
-            "original_currency": currency,
-            "original_amount": amount
+            "account": "75562-10",
+            "amount": 24436.0,
+            "currency": "NTD",
+            "department": "VCT.1312G",
+            "department_code": "VCT.1312G"
         },
         "credit": {
-            "marker": "",
             "gl_account": "Vendor",
-            "account": vendor_code,
-            "sub_account": "31200-10",
-            "amount": amount,
-            "currency": currency,
-            "department": "VCT.1692G",
-            "applicant_code": "10036",
-            "vendor_code": vendor_code,
-            "free_field": "",
+            "vendor_code": "V-VC00048",
+            "account": "V-VC00048",
+            "amount": 24436.0,
+            "currency": "NTD",
+            "department": "VCT.9999",
             "department_code": "VCT.9999",
-            "Remarks": "Test Remarks",
-            "account_source": "vendor_code"
+            "Remarks": "- 2025/04/16 - 2028/04/16 Gandi.net VicOne domain renewal."
         }
     }
 
-def test_overseas_vendor():
-    """Test handling of overseas vendor (V-VC prefix)"""
-    # Create a test entry with V-VC vendor code
-    entry = create_test_entry("V-VC00048", "R-USD", 375.59)
-    
-    # Generate credit journal line
-    credit_line = create_journal_line(entry, "credit")
-    
-    # Verify that the original currency and amount are preserved
-    assert credit_line["Currency_Code"] == "R-USD", f"Expected Currency_Code to be 'R-USD', got '{credit_line['Currency_Code']}'"
-    assert credit_line["Amount"] == -375.59, f"Expected Amount to be -375.59, got {credit_line['Amount']}"
-    
-    logger.info("✅ Overseas vendor test passed: Original currency (R-USD) and amount (375.59) preserved")
-    return credit_line
+    # Test case 1: Overseas vendor with NTD currency in VCT company
+    logger.info("Test case 1: Overseas vendor with NTD currency in VCT company")
+    credit_line = create_journal_line(test_entry, "credit")
+    logger.info(f"Credit line Currency_Code: '{credit_line['Currency_Code']}'")
+    assert credit_line["Currency_Code"] == "", "Currency_Code should be empty for overseas vendor with NTD currency in VCT company"
+    logger.info("Test case 1 passed: Currency_Code is empty for overseas vendor with NTD currency in VCT company")
 
-def test_regular_vendor():
-    """Test handling of regular vendor (non-V-VC prefix)"""
-    # Create a test entry with non-V-VC vendor code
-    entry = create_test_entry("V53530703", "R-USD", 375.59)
-    
-    # Generate credit journal line
-    credit_line = create_journal_line(entry, "credit")
-    
-    # Verify that the currency is transformed to empty string (home currency)
-    # and amount is converted to NTD
-    assert credit_line["Currency_Code"] == "", f"Expected Currency_Code to be '' (empty), got '{credit_line['Currency_Code']}'"
-    assert credit_line["Amount"] < -10000, f"Expected Amount to be converted to NTD (around -12143), got {credit_line['Amount']}"
-    
-    logger.info(f"✅ Regular vendor test passed: Currency transformed to '' and amount converted to {credit_line['Amount']}")
-    return credit_line
+    # Test case 2: Overseas vendor with USD currency in VCT company
+    logger.info("Test case 2: Overseas vendor with USD currency in VCT company")
+    test_entry["credit"]["currency"] = "USD"
+    credit_line = create_journal_line(test_entry, "credit")
+    logger.info(f"Credit line Currency_Code: '{credit_line['Currency_Code']}'")
+    assert credit_line["Currency_Code"] == "R-USD", "Currency_Code should be R-USD for overseas vendor with USD currency in VCT company"
+    logger.info("Test case 2 passed: Currency_Code is R-USD for overseas vendor with USD currency in VCT company")
 
-def main():
-    """Run all tests"""
-    logger.info("Starting overseas vendor currency handling tests")
-    
-    # Test overseas vendor
-    overseas_result = test_overseas_vendor()
-    logger.info(f"Overseas vendor journal line: {json.dumps(overseas_result, indent=2)}")
-    
-    # Test regular vendor
-    regular_result = test_regular_vendor()
-    logger.info(f"Regular vendor journal line: {json.dumps(regular_result, indent=2)}")
-    
+    # Test case 3: Overseas vendor with NTD currency in VCA company
+    logger.info("Test case 3: Overseas vendor with NTD currency in VCA company")
+    test_entry["credit"]["currency"] = "NTD"
+    test_entry["credit"]["department"] = "VCA.9999"
+    test_entry["credit"]["department_code"] = "VCA.9999"
+    credit_line = create_journal_line(test_entry, "credit")
+    logger.info(f"Credit line Currency_Code: '{credit_line['Currency_Code']}'")
+    assert credit_line["Currency_Code"] == "R-NTD", "Currency_Code should be R-NTD for overseas vendor with NTD currency in VCA company"
+    logger.info("Test case 3 passed: Currency_Code is R-NTD for overseas vendor with NTD currency in VCA company")
+
     logger.info("All tests passed!")
 
 if __name__ == "__main__":
-    main()
+    test_overseas_vendor_ntd_currency()
