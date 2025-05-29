@@ -289,6 +289,10 @@ The `exchange_rate_api.py` module provides comprehensive currency conversion cap
 * **Company-Specific Rules**:
   * Each company has a defined "home" currency
   * Special rules apply for conversions involving home currencies
+* **Overseas Vendor Handling**:
+  * For overseas vendors (vendor codes starting with V-VC), original currency and amount are preserved without conversion
+  * Special case: For VCT company with NTD currency (home currency), currency code is set to empty string
+  * For overseas vendors with non-home currencies, standard currency code transformation rules are applied (e.g., adding "R-" prefix)
 
 ### Conversion Types
 * **Direct Conversion**:
