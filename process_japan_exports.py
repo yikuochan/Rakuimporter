@@ -495,7 +495,14 @@ def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any
                 # Keep original currency and amount for overseas vendors
                 vendor_code = entry_data.get("vendor_code", "")
                 logger.info(f"Overseas vendor detected ({vendor_code}): Keeping original currency {currency_to_use} and amount {original_amount}")
-                transformed_currency = currency_to_use
+                
+                # Special case: For VCT company and NTD currency, set currency code to empty string
+                if company_code == "VCT" and currency_to_use == "NTD":
+                    logger.info(f"Overseas vendor with NTD currency in VCT company: Setting currency code to empty string")
+                    transformed_currency = ""
+                else:
+                    transformed_currency = currency_to_use
+                    
                 converted_amount = original_amount  # Keep the original sign (negative for credit)
             else:
                 # For non-overseas vendors, use the existing transformation logic
