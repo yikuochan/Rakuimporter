@@ -514,8 +514,18 @@ def consolidate_entries(entries):
                                 try:
                                     original_amount = float(entry["credit"]["amount"])
                                     
-                                    # Convert to target currency if needed
-                                    if entry["credit"]["currency"] != target_currency:
+                                    # Special handling for overseas vendors (V-VC prefix)
+                                    # For VCT vendors with V-VC prefix (overseas vendors), preserve original currency and amount
+                                    if vendor_code.startswith("V-VC"):
+                                        logger.info(
+                                            f"Overseas vendor detected ({vendor_code}): Keeping original currency {entry['credit']['currency']} and amount {original_amount}"
+                                        )
+                                        # Keep original currency and amount for overseas vendors
+                                        total_credit_amount += original_amount
+                                        # Use the original currency for the consolidated entry
+                                        credit_currency = entry["credit"]["currency"]
+                                    # For non-overseas vendors, convert to target currency if needed
+                                    elif entry["credit"]["currency"] != target_currency:
                                         converted_amount, success = convert_amount(
                                             original_amount, 
                                             entry["credit"]["currency"], 
