@@ -488,14 +488,24 @@ def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any
             transformed_currency = transform_currency_code(company_code, currency_to_use)
             converted_amount = original_amount  # Keep original amount
         else:
-            # For credit lines, use the existing transformation logic
-            transformed_currency, converted_amount = transform_currency(
-                company_code, 
-                currency_to_use, 
-                abs(original_amount)
-            )
-            # Apply sign based on entry type
-            converted_amount = -converted_amount if entry_type == "credit" else converted_amount
+            # Special handling for overseas vendors (V-VC prefix)
+            # As per requirement: For VCT vendors with V-VC prefix (overseas vendors),
+            # we must preserve the original currency and amount without conversion
+            if entry_type == "credit" and entry_data.get("gl_account") == "Vendor" and entry_data.get("vendor_code", "").startswith("V-VC"):
+                # Keep original currency and amount for overseas vendors
+                vendor_code = entry_data.get("vendor_code", "")
+                logger.info(f"Overseas vendor detected ({vendor_code}): Keeping original currency {currency_to_use} and amount {original_amount}")
+                transformed_currency = currency_to_use
+                converted_amount = original_amount  # Keep the original sign (negative for credit)
+            else:
+                # For non-overseas vendors, use the existing transformation logic
+                transformed_currency, converted_amount = transform_currency(
+                    company_code, 
+                    currency_to_use, 
+                    abs(original_amount)
+                )
+                # Apply sign based on entry type
+                converted_amount = -converted_amount if entry_type == "credit" else converted_amount
     
     # Use the final amount
     amount = converted_amount
