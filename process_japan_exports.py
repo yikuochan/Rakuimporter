@@ -501,7 +501,9 @@ def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any
                     logger.info(f"Overseas vendor with NTD currency in VCT company: Setting currency code to empty string")
                     transformed_currency = ""
                 else:
-                    transformed_currency = currency_to_use
+                    # Apply transform_currency_code to non-NTD currencies for overseas vendors
+                    transformed_currency = transform_currency_code(company_code, currency_to_use)
+                    logger.info(f"Applied transform_currency_code for overseas vendor: {transformed_currency}")
                     
                 converted_amount = original_amount  # Keep the original sign (negative for credit)
             else:
