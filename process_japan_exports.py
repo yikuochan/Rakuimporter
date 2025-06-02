@@ -148,7 +148,7 @@ def get_access_token() -> str:
         raise
 
 
-def transform_currency(company_code: str, currency_code: str, amount: float) -> Tuple[str, float]:
+def transform_currency(company_code: str, currency_code: str, amount: float, decimal_precision: int = 2) -> Tuple[str, float]:
     """
     Transform currency code based on company code and convert amount according to business rules.
     
@@ -156,6 +156,7 @@ def transform_currency(company_code: str, currency_code: str, amount: float) -> 
         company_code: The company code (e.g., VCT, VCP, etc.)
         currency_code: The original currency code from the JSON
         amount: The amount to convert
+        decimal_precision: Number of decimal places for rounding (default: 2)
         
     Returns:
         Tuple[str, float]: The transformed currency code and converted amount
@@ -194,10 +195,17 @@ def transform_currency(company_code: str, currency_code: str, amount: float) -> 
         # If we have a different currency, convert the amount to the target currency
         elif normalized_currency:
             try:
-                # Convert amount to target currency, passing company_code
+                # Convert amount to target currency, passing company_code and decimal_precision
                 # Use the normalized currency for conversion, not the original with R- prefix
-                converted_amount, success = convert_amount(amount, normalized_currency, target_currency, company_code=company_code)
+                converted_amount, success = convert_amount(
+                    amount, 
+                    normalized_currency, 
+                    target_currency, 
+                    company_code=company_code,
+                    decimal_precision=decimal_precision
+                )
                 logger.info(f"Converted {amount} {normalized_currency} to {converted_amount:.2f} {target_currency} for company {company_code}")
+                logger.info(f"Using decimal precision of {decimal_precision} for rounding")
                 
                 # After conversion, the currency is now the home currency, so return empty string
                 return "", converted_amount

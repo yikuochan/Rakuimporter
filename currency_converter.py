@@ -8,12 +8,13 @@ retrieve exchange rates and perform currency conversions.
 """
 
 import logging
+import numpy as np
 from exchange_rate_query import get_exchange_rate
 
 # Configure logging
 logger = logging.getLogger("erp_api_integration")
 
-def convert_amount(amount, from_currency, to_currency, company_code=None, excel_path=None):
+def convert_amount(amount, from_currency, to_currency, company_code=None, excel_path=None, decimal_precision=2):
     """
     Convert an amount from one currency to another using exchange rates.
     
@@ -23,6 +24,7 @@ def convert_amount(amount, from_currency, to_currency, company_code=None, excel_
         to_currency (str): Target currency code
         company_code (str, optional): Company code to use for exchange rate lookup
         excel_path (str, optional): Path to the exchange rate Excel file
+        decimal_precision (int, optional): Number of decimal places for rounding (default: 2)
         
     Returns:
         tuple: (converted_amount, success_flag)
@@ -45,10 +47,19 @@ def convert_amount(amount, from_currency, to_currency, company_code=None, excel_
         
         # Get exchange rate and convert amount, passing company_code
         rate = get_exchange_rate(from_curr, to_curr, company_name=company_code, **kwargs)
-        converted = amount * rate
+        
+        # Use NumPy for precise decimal rounding
+        # Calculate the conversion
+        raw_conversion = amount * rate
+        
+        # Apply NumPy rounding with specified decimal precision
+        converted = np.round(raw_conversion, decimal_precision)
         
         logger.info(f"Converted {amount} {from_currency} to {converted:.2f} {to_currency} (rate: {rate})")
-        return converted, True
+        logger.info(f"Raw conversion: {raw_conversion}, After NumPy rounding: {converted}")
+        
+        # Return as Python float but ensure the rounding is preserved
+        return float(converted), True
         
     except Exception as e:
         error_msg = f"Failed to convert {amount} from {from_currency} to {to_currency}: {str(e)}"
