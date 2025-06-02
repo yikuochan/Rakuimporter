@@ -189,8 +189,22 @@ def transform_currency(company_code: str, currency_code: str, amount: float, dec
         # If the currency already matches the target (home currency)
         if normalized_currency == target_currency:
             logger.info(f"Transforming currency code for company {company_code}: {currency_code} -> ''")
-            # Always return empty string when currency matches home currency, regardless of which currency it is
-            return "", amount
+            # Use convert_amount to ensure consistent handling of all amounts as Decimal objects
+            # This is important for the currency rounding fix
+            try:
+                converted_amount, success = convert_amount(
+                    amount, 
+                    normalized_currency, 
+                    target_currency, 
+                    company_code=company_code,
+                    decimal_precision=decimal_precision
+                )
+                # Always return empty string when currency matches home currency
+                return "", converted_amount
+            except Exception as e:
+                logger.warning(f"Failed to convert {amount} from {normalized_currency} to {target_currency}: {str(e)}")
+                # Return original currency code and amount if conversion fails
+                return "", amount
         
         # If we have a different currency, convert the amount to the target currency
         elif normalized_currency:
