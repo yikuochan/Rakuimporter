@@ -19,7 +19,15 @@ import logging
 import os
 import sys
 import time
+from decimal import Decimal
 from typing import Dict, List, Any, Optional, Tuple
+
+# Custom JSON encoder to handle Decimal objects
+class DecimalEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, Decimal):
+            return float(obj)
+        return super(DecimalEncoder, self).default(obj)
 
 # Force reset the logging configuration
 for handler in logging.root.handlers[:]:
@@ -133,14 +141,14 @@ def get_access_token() -> str:
         response = requests.post(TOKEN_URL, data=data, verify=False)
         # Log response status and headers
         logger.info(f"Token response status code: {response.status_code}")
-        logger.info(f"Token response headers: {json.dumps(dict(response.headers), indent=2)}")
+        logger.info(f"Token response headers: {json.dumps(dict(response.headers), indent=2, cls=DecimalEncoder)}")
         response.raise_for_status()
         token_data = response.json()
         # Log token response (excluding the actual token for security)
         safe_token_data = token_data.copy()
         if "access_token" in safe_token_data:
             safe_token_data["access_token"] = "[REDACTED]"
-        logger.info(f"Token response: {json.dumps(safe_token_data, indent=2)}")
+        logger.info(f"Token response: {json.dumps(safe_token_data, indent=2, cls=DecimalEncoder)}")
         logger.info("Access token acquired successfully")
         return token_data["access_token"]
     except Exception as e:
@@ -698,19 +706,19 @@ def post_journal_line(journal_line: Dict[str, Any], access_token: str,
         
         try:
             # Log the request body for debugging
-            logger.info(f"Request body for journal line: {json.dumps(journal_line, indent=2)}")
+            logger.info(f"Request body for journal line: {json.dumps(journal_line, indent=2, cls=DecimalEncoder)}")
             # Log headers (excluding Authorization header for security)
             safe_headers = headers.copy()
             if "Authorization" in safe_headers:
                 safe_headers["Authorization"] = "Bearer [REDACTED]"
-            logger.info(f"Request headers: {json.dumps(safe_headers, indent=2)}")
+            logger.info(f"Request headers: {json.dumps(safe_headers, indent=2, cls=DecimalEncoder)}")
             
             # Temporarily disable SSL verification for testing
             response = requests.post(api_url, json=journal_line, headers=headers, verify=False)
             
             # Log response status and headers
             logger.info(f"Response status code: {response.status_code}")
-            logger.info(f"Response headers: {json.dumps(dict(response.headers), indent=2)}")
+            logger.info(f"Response headers: {json.dumps(dict(response.headers), indent=2, cls=DecimalEncoder)}")
             
             # Check for rate limit response (usually 429 Too Many Requests)
             if response.status_code == 429:
@@ -725,7 +733,7 @@ def post_journal_line(journal_line: Dict[str, Any], access_token: str,
             # Process successful response
             response_data = response.json()
             # Log the response data
-            logger.info(f"API response body: {json.dumps(response_data, indent=2)}")
+            logger.info(f"API response body: {json.dumps(response_data, indent=2, cls=DecimalEncoder)}")
             
             # Record success and return
             rate_limiter.record_success()
@@ -1015,7 +1023,7 @@ def process_entries(entries: List[Dict[str, Any]], access_token: str, balance_to
                     # Use the original External_Document_No without modification
                     logger.info(f"Posting debit line for voucher {entry_voucher_no} with Document_No: {debit_line['Document_No']}")
                     # Create a deep copy of the debit line to prevent any reference issues
-                    debit_line_copy = json.loads(json.dumps(debit_line))
+                    debit_line_copy = json.loads(json.dumps(debit_line, cls=DecimalEncoder))
                     debit_success, debit_response = post_journal_line(debit_line_copy, access_token, rate_limiter, max_retries)
                     
                     if debit_success:
@@ -1061,7 +1069,7 @@ def process_entries(entries: List[Dict[str, Any]], access_token: str, balance_to
                                f"Using existing consolidated entry")
                     
                     # Create a deep copy of the credit line to prevent any reference issues
-                    credit_line_copy = json.loads(json.dumps(credit_line))
+                    credit_line_copy = json.loads(json.dumps(credit_line, cls=DecimalEncoder))
                     credit_success, credit_response = post_journal_line(credit_line_copy, access_token, rate_limiter, max_retries)
                     
                     if credit_success:
@@ -1134,7 +1142,7 @@ def process_entries(entries: List[Dict[str, Any]], access_token: str, balance_to
                     # Use the original External_Document_No without modification
                     logger.info(f"Posting debit line {i+1}/{len(valid_entries)} for voucher {entry_voucher_no} with Document_No: {debit_line['Document_No']}")
                     # Create a deep copy of the debit line to prevent any reference issues
-                    debit_line_copy = json.loads(json.dumps(debit_line))
+                    debit_line_copy = json.loads(json.dumps(debit_line, cls=DecimalEncoder))
                     debit_success, debit_response = post_journal_line(debit_line_copy, access_token, rate_limiter, max_retries)
                     
                     if debit_success:
@@ -1153,7 +1161,7 @@ def process_entries(entries: List[Dict[str, Any]], access_token: str, balance_to
                            f"Consolidated from {len(valid_entries)} entries")
                 
                 # Create a deep copy of the credit line to prevent any reference issues
-                credit_line_copy = json.loads(json.dumps(credit_line))
+                credit_line_copy = json.loads(json.dumps(credit_line, cls=DecimalEncoder))
                 credit_success, credit_response = post_journal_line(credit_line_copy, access_token, rate_limiter, max_retries)
                 
                 if credit_success:

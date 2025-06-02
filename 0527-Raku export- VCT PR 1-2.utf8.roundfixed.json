@@ -77,7 +77,8 @@
       "Remarks": "Monthly payment for outsourced writer",
       "consolidated": true,
       "original_entries_count": 1,
-      "account_source": "vendor_code"
+      "account_source": "vendor_code",
+      "raw_total_before_rounding": 67440.0
     }
   },
   {
@@ -158,7 +159,8 @@
       "Remarks": "xSUMO Backend outsource fee 202502",
       "consolidated": true,
       "original_entries_count": 1,
-      "account_source": "vendor_code"
+      "account_source": "vendor_code",
+      "raw_total_before_rounding": 147000.0
     }
   },
   {
@@ -239,7 +241,8 @@
       "Remarks": "xSUMO out source QA fee 202502",
       "consolidated": true,
       "original_entries_count": 1,
-      "account_source": "vendor_code"
+      "account_source": "vendor_code",
+      "raw_total_before_rounding": 102219.0
     }
   },
   {
@@ -320,7 +323,8 @@
       "Remarks": "Edward Tsai business trip 20250324-20250326 TPE-PEK-TPE",
       "consolidated": true,
       "original_entries_count": 1,
-      "account_source": "vendor_code"
+      "account_source": "vendor_code",
+      "raw_total_before_rounding": 36546.0
     }
   },
   {
@@ -401,7 +405,8 @@
       "Remarks": "TW 21F Office 飲用? water cooler service fee APR 2025",
       "consolidated": true,
       "original_entries_count": 1,
-      "account_source": "vendor_code"
+      "account_source": "vendor_code",
+      "raw_total_before_rounding": 1785.0
     }
   },
   {
@@ -482,7 +487,8 @@
       "Remarks": "TW 21F office cleaning service fee - APR 2025",
       "consolidated": true,
       "original_entries_count": 1,
-      "account_source": "vendor_code"
+      "account_source": "vendor_code",
+      "raw_total_before_rounding": 27368.0
     }
   },
   {
@@ -563,7 +569,8 @@
       "Remarks": "TW 21F office vending machine service fee - APR 2025",
       "consolidated": true,
       "original_entries_count": 1,
-      "account_source": "vendor_code"
+      "account_source": "vendor_code",
+      "raw_total_before_rounding": 6669.0
     }
   },
   {
@@ -644,7 +651,8 @@
       "Remarks": "10030 Peter Yang business card x2",
       "consolidated": true,
       "original_entries_count": 1,
-      "account_source": "vendor_code"
+      "account_source": "vendor_code",
+      "raw_total_before_rounding": 672.0
     }
   },
   {
@@ -725,7 +733,8 @@
       "Remarks": "10075 Evelyn Chen business card 20250402",
       "consolidated": true,
       "original_entries_count": 1,
-      "account_source": "vendor_code"
+      "account_source": "vendor_code",
+      "raw_total_before_rounding": 336.0
     }
   },
   {
@@ -806,7 +815,8 @@
       "Remarks": "10119 Evelyn Kuo business card 20250327",
       "consolidated": true,
       "original_entries_count": 1,
-      "account_source": "vendor_code"
+      "account_source": "vendor_code",
+      "raw_total_before_rounding": 336.0
     }
   },
   {
@@ -887,7 +897,8 @@
       "Remarks": "Monthly payment for outsourced writer",
       "consolidated": true,
       "original_entries_count": 1,
-      "account_source": "vendor_code"
+      "account_source": "vendor_code",
+      "raw_total_before_rounding": 67440.0
     }
   },
   {
@@ -968,7 +979,8 @@
       "Remarks": "xSUMO Backend outsource fee 202503",
       "consolidated": true,
       "original_entries_count": 1,
-      "account_source": "vendor_code"
+      "account_source": "vendor_code",
+      "raw_total_before_rounding": 147000.0
     }
   },
   {
@@ -1049,7 +1061,8 @@
       "Remarks": "2025 Automotive Cybersecurity Report press*1",
       "consolidated": true,
       "original_entries_count": 1,
-      "account_source": "vendor_code"
+      "account_source": "vendor_code",
+      "raw_total_before_rounding": 22028.0
     }
   },
   {
@@ -1130,7 +1143,8 @@
       "Remarks": "Cross charge to DACH expense Printings for \"automotive cybersecurity report highlights\"",
       "consolidated": true,
       "original_entries_count": 1,
-      "account_source": "vendor_code"
+      "account_source": "vendor_code",
+      "raw_total_before_rounding": 12600.0
     }
   },
   {
@@ -1211,7 +1225,8 @@
       "Remarks": "Chelsea Chen越南簽?20250409",
       "consolidated": true,
       "original_entries_count": 1,
-      "account_source": "vendor_code"
+      "account_source": "vendor_code",
+      "raw_total_before_rounding": 3100.0
     }
   },
   {
@@ -1292,7 +1307,8 @@
       "Remarks": "TW Office 21F printer rental fee_2025MAR",
       "consolidated": true,
       "original_entries_count": 1,
-      "account_source": "vendor_code"
+      "account_source": "vendor_code",
+      "raw_total_before_rounding": 3480.0
     }
   },
   {
@@ -1373,7 +1389,8 @@
       "Remarks": "Sales workshop flip chart paper_20250415-0416",
       "consolidated": true,
       "original_entries_count": 1,
-      "account_source": "vendor_code"
+      "account_source": "vendor_code",
+      "raw_total_before_rounding": 1092.0
     }
   },
   {
@@ -1454,7 +1471,8 @@
       "Remarks": "TW Office  21F Blade's team?線費用",
       "consolidated": true,
       "original_entries_count": 1,
-      "account_source": "vendor_code"
+      "account_source": "vendor_code",
+      "raw_total_before_rounding": 32834.0
     }
   },
   {
@@ -1535,7 +1553,8 @@
       "Remarks": "TW Office 26F AP網路線施工費用",
       "consolidated": true,
       "original_entries_count": 1,
-      "account_source": "vendor_code"
+      "account_source": "vendor_code",
+      "raw_total_before_rounding": 3150.0
     }
   },
   {
@@ -1734,6 +1753,7 @@
       "consolidated": true,
       "original_entries_count": 4,
       "account_source": "vendor_code",
+      "raw_total_before_rounding": 2352.0,
       "consolidation_note": "Consolidated from 4 entries"
     }
   },
@@ -1815,7 +1835,8 @@
       "Remarks": "??散?_VicOne team building 20250418 NT$ 3500 VicOne credit card (2025 Apr. 15) NT$ 31500 TrendMicro 2",
       "consolidated": true,
       "original_entries_count": 1,
-      "account_source": "vendor_code"
+      "account_source": "vendor_code",
+      "raw_total_before_rounding": 35000.0
     }
   },
   {
@@ -1896,7 +1917,8 @@
       "Remarks": "10055 Chelsea Chen business card 20250428",
       "consolidated": true,
       "original_entries_count": 1,
-      "account_source": "vendor_code"
+      "account_source": "vendor_code",
+      "raw_total_before_rounding": 336.0
     }
   },
   {
@@ -1977,7 +1999,8 @@
       "Remarks": "10021 Riz Hsu business card 20250424",
       "consolidated": true,
       "original_entries_count": 1,
-      "account_source": "vendor_code"
+      "account_source": "vendor_code",
+      "raw_total_before_rounding": 336.0
     }
   },
   {
@@ -2058,7 +2081,8 @@
       "Remarks": "TW HR Mobile fee 0972700191 APR_20250425",
       "consolidated": true,
       "original_entries_count": 1,
-      "account_source": "vendor_code"
+      "account_source": "vendor_code",
+      "raw_total_before_rounding": 840.0
     }
   },
   {
@@ -2608,6 +2632,7 @@
       "consolidated": true,
       "original_entries_count": 13,
       "account_source": "vendor_code",
+      "raw_total_before_rounding": 83985.0,
       "consolidation_note": "Consolidated from 13 entries"
     }
   },
@@ -2729,6 +2754,7 @@
       "consolidated": true,
       "original_entries_count": 2,
       "account_source": "vendor_code",
+      "raw_total_before_rounding": 5482.0,
       "consolidation_note": "Consolidated from 2 entries"
     }
   },
@@ -2810,7 +2836,8 @@
       "Remarks": "TW office 21F coffee machine rental fee MAY 2025",
       "consolidated": true,
       "original_entries_count": 1,
-      "account_source": "vendor_code"
+      "account_source": "vendor_code",
+      "raw_total_before_rounding": 1365.0
     }
   },
   {
@@ -2891,7 +2918,8 @@
       "Remarks": "TW Office 21F security card machine service fee 20250601-20250831",
       "consolidated": true,
       "original_entries_count": 1,
-      "account_source": "vendor_code"
+      "account_source": "vendor_code",
+      "raw_total_before_rounding": 7875.0
     }
   },
   {
@@ -2972,7 +3000,8 @@
       "Remarks": "2025 cybersecurity report",
       "consolidated": true,
       "original_entries_count": 1,
-      "account_source": "vendor_code"
+      "account_source": "vendor_code",
+      "raw_total_before_rounding": 59017.0
     }
   },
   {
@@ -3053,7 +3082,8 @@
       "Remarks": "VCT Payroll Service Fee 202504",
       "consolidated": true,
       "original_entries_count": 1,
-      "account_source": "vendor_code"
+      "account_source": "vendor_code",
+      "raw_total_before_rounding": 42380.0
     }
   },
   {
@@ -3213,6 +3243,7 @@
       "consolidated": true,
       "original_entries_count": 3,
       "account_source": "vendor_code",
+      "raw_total_before_rounding": 643800.0,
       "consolidation_note": "Consolidated from 3 entries"
     }
   },
@@ -3294,7 +3325,8 @@
       "Remarks": "TW 21F vending machine 2025_May",
       "consolidated": true,
       "original_entries_count": 1,
-      "account_source": "vendor_code"
+      "account_source": "vendor_code",
+      "raw_total_before_rounding": 8806.0
     }
   },
   {
@@ -3375,7 +3407,8 @@
       "Remarks": "TW 21F 保�ｺ清?費 2025_May",
       "consolidated": true,
       "original_entries_count": 1,
-      "account_source": "vendor_code"
+      "account_source": "vendor_code",
+      "raw_total_before_rounding": 27368.0
     }
   },
   {
@@ -3456,7 +3489,8 @@
       "Remarks": "?長線*10 for new hires and backup｜2025_May",
       "consolidated": true,
       "original_entries_count": 1,
-      "account_source": "vendor_code"
+      "account_source": "vendor_code",
+      "raw_total_before_rounding": 6300.0
     }
   },
   {
@@ -3537,7 +3571,8 @@
       "Remarks": "TW 21F office water 飲用? 202505",
       "consolidated": true,
       "original_entries_count": 1,
-      "account_source": "vendor_code"
+      "account_source": "vendor_code",
+      "raw_total_before_rounding": 2100.0
     }
   },
   {
@@ -3618,7 +3653,8 @@
       "Remarks": "須先匯款 發票後補 10138 Alice Cheng Jun 9 onboard Lenovo ThinkPad T14 Gen 5",
       "consolidated": true,
       "original_entries_count": 1,
-      "account_source": "vendor_code"
+      "account_source": "vendor_code",
+      "raw_total_before_rounding": 47062.0
     }
   },
   {
@@ -4014,6 +4050,7 @@
       "consolidated": true,
       "original_entries_count": 9,
       "account_source": "applicant_code",
+      "raw_total_before_rounding": 42860.8,
       "consolidation_note": "Consolidated from 9 entries"
     }
   },
@@ -5022,7 +5059,7 @@
       "gl_account": "Vendor",
       "account": "10087",
       "sub_account": "32200-10",
-      "amount": 83870.15,
+      "amount": 83868.0,
       "currency": "NTD",
       "department": "VCT.1342G",
       "applicant_code": "10087",
@@ -5033,6 +5070,7 @@
       "consolidated": true,
       "original_entries_count": 24,
       "account_source": "applicant_code",
+      "raw_total_before_rounding": 83868.0,
       "consolidation_note": "Consolidated from 24 entries"
     }
   },
@@ -5642,6 +5680,7 @@
       "consolidated": true,
       "original_entries_count": 14,
       "account_source": "applicant_code",
+      "raw_total_before_rounding": 49483.0,
       "consolidation_note": "Consolidated from 14 entries"
     }
   }
