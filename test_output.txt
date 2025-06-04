@@ -1,0 +1,32 @@
+Testing transform_currency function with mocked exchange rates...
+
+Test 1: 1000.0 RMB -> NTD (company: VCT)
+2025-06-02 14:21:41,435 - erp_api_integration - INFO - Converted 1000.0 RMB to 4450.00 NTD (rate: 4.45)
+2025-06-02 14:21:41,435 - erp_api_integration - INFO - Raw conversion: 4450.000, After Decimal rounding: 4450.00
+2025-06-02 14:21:41,435 - erp_api_integration - INFO - Converted 1000.0 RMB to 4450.00 NTD for company VCT
+2025-06-02 14:21:41,435 - erp_api_integration - INFO - Using decimal precision of 2 for rounding
+  Original: 1000.0 RMB
+  Transformed: 4450.00 
+  Result type: <class 'decimal.Decimal'>
+  ✓ Test passed
+
+Test 2: 100.0 USD -> NTD (company: VCT)
+2025-06-02 14:21:41,435 - erp_api_integration - INFO - Converted 100.0 USD to 3150.00 NTD (rate: 31.5)
+2025-06-02 14:21:41,435 - erp_api_integration - INFO - Raw conversion: 3150.00, After Decimal rounding: 3150.00
+2025-06-02 14:21:41,435 - erp_api_integration - INFO - Converted 100.0 USD to 3150.00 NTD for company VCT
+2025-06-02 14:21:41,435 - erp_api_integration - INFO - Using decimal precision of 2 for rounding
+  Original: 100.0 USD
+  Transformed: 3150.00 
+  Result type: <class 'decimal.Decimal'>
+  ✓ Test passed
+
+Test 3: 500.0 NTD -> NTD (company: VCT)
+2025-06-02 14:21:41,435 - erp_api_integration - INFO - Transforming currency code for company VCT: NTD -> ''
+  Original: 500.0 NTD
+  Transformed: 500.00 
+  Result type: <class 'decimal.Decimal'>
+  ✓ Test passed
+
+✓ All tests passed! process_japan_exports.py is correctly using the fixed currency converter.
+
+Test completed
