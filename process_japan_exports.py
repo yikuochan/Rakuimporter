@@ -444,6 +444,17 @@ def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any
     # For other accounts, use the account field
     if entry_data.get("gl_account", "") == "Vendor":
         account_no = entry_data.get("vendor_code", "")
+        
+        # NEW CODE: Handle V-VC00048 mapping for non-VCT cost centers
+        if account_no == "V-VC00048":
+            # Extract cost center from department code (first 3 characters)
+            department = entry_data.get("department", "")
+            cost_center = department[:3] if department else ""
+            
+            # If cost center is not VCT, change vendor code to VCT
+            if cost_center and cost_center != "VCT":
+                logger.info(f"Mapping vendor V-VC00048 to VCT for non-VCT cost center {cost_center} - Voucher: {entry.get('voucher_no', 'Unknown')}")
+                account_no = "VCT"
     else:
         account_no = entry_data.get("account", "")
     
