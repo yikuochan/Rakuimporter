@@ -19,8 +19,12 @@ This feature implements the requirement to map the vendor code V-VC00048 to VCT 
    - Adds the original cost center as a prefix to the description
 
 3. Updated the `process_entries` function to:
-   - Check for V-VC00048 vendor code after successfully posting credit lines
+   - Check for V-VC00048 vendor code regardless of whether credit line posting succeeds or fails
    - Call the `create_vct_responsibility_entries` function when needed
+
+### Bug Fix
+
+Fixed an issue where VCT responsibility entries were not being created when the credit line posting failed. The code now checks for V-VC00048 vendor code and creates VCT responsibility entries regardless of whether the credit line posting succeeds or fails.
 
 ### Testing
 
@@ -29,6 +33,7 @@ The implementation was tested with a sample file containing V-VC00048 vendor ent
 1. The vendor code is correctly mapped to VCT for non-VCT cost centers
 2. Additional responsibility entries are created in VCT
 3. The original transaction details are preserved
+4. VCT responsibility entries are created even when credit line posting fails
 
 ### Usage
 

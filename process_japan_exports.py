@@ -1191,20 +1191,21 @@ def process_entries(entries: List[Dict[str, Any]], access_token: str, balance_to
                     if credit_success:
                         logger.info(f"Successfully posted credit line for voucher {entry_voucher_no}")
                         success_count += 1
-                        
-                        # Check if this was a V-VC00048 mapping to VCT for non-VCT cost center
-                        original_vendor_code = entry.get('credit', {}).get('vendor_code', '')
-                        department = entry.get('credit', {}).get('department', '')
-                        cost_center = department[:3] if department else ''
-                        
-                        if original_vendor_code == "V-VC00048" and cost_center and cost_center != "VCT":
-                            logger.info(f"Creating VCT responsibility entries for mapped vendor V-VC00048 - Voucher: {entry_voucher_no}")
-                            vct_success, vct_failure = create_vct_responsibility_entries(entry, access_token, rate_limiter, max_retries)
-                            success_count += vct_success
-                            failure_count += vct_failure
                     else:
                         logger.error(f"Failed to post credit line for voucher {entry_voucher_no}")
                         failure_count += 1
+                    
+                    # Check if this was a V-VC00048 mapping to VCT for non-VCT cost center
+                    # This should happen regardless of whether the credit line posting succeeded
+                    original_vendor_code = entry.get('credit', {}).get('vendor_code', '')
+                    department = entry.get('credit', {}).get('department', '')
+                    cost_center = department[:3] if department else ''
+                    
+                    if original_vendor_code == "V-VC00048" and cost_center and cost_center != "VCT":
+                        logger.info(f"Creating VCT responsibility entries for mapped vendor V-VC00048 - Voucher: {entry_voucher_no}")
+                        vct_success, vct_failure = create_vct_responsibility_entries(entry, access_token, rate_limiter, max_retries)
+                        success_count += vct_success
+                        failure_count += vct_failure
                 
                 # If this voucher is already consolidated and we have consolidated entries,
                 # post the consolidated credit line once
@@ -1320,20 +1321,21 @@ def process_entries(entries: List[Dict[str, Any]], access_token: str, balance_to
                     if credit_success:
                         logger.info(f"Successfully posted consolidated credit line for voucher {consolidated_voucher_no}")
                         success_count += 1
-                        
-                        # Check if this was a V-VC00048 mapping to VCT for non-VCT cost center
-                        original_vendor_code = template_entry.get('credit', {}).get('vendor_code', '')
-                        department = template_entry.get('credit', {}).get('department', '')
-                        cost_center = department[:3] if department else ''
-                        
-                        if original_vendor_code == "V-VC00048" and cost_center and cost_center != "VCT":
-                            logger.info(f"Creating VCT responsibility entries for consolidated mapped vendor V-VC00048 - Voucher: {consolidated_voucher_no}")
-                            vct_success, vct_failure = create_vct_responsibility_entries(template_entry, access_token, rate_limiter, max_retries)
-                            success_count += vct_success
-                            failure_count += vct_failure
                     else:
                         logger.error(f"Failed to post consolidated credit line for voucher {consolidated_voucher_no}")
                         failure_count += 1
+                    
+                    # Check if this was a V-VC00048 mapping to VCT for non-VCT cost center
+                    # This should happen regardless of whether the credit line posting succeeded
+                    original_vendor_code = template_entry.get('credit', {}).get('vendor_code', '')
+                    department = template_entry.get('credit', {}).get('department', '')
+                    cost_center = department[:3] if department else ''
+                    
+                    if original_vendor_code == "V-VC00048" and cost_center and cost_center != "VCT":
+                        logger.info(f"Creating VCT responsibility entries for consolidated mapped vendor V-VC00048 - Voucher: {consolidated_voucher_no}")
+                        vct_success, vct_failure = create_vct_responsibility_entries(template_entry, access_token, rate_limiter, max_retries)
+                        success_count += vct_success
+                        failure_count += vct_failure
     
     # Generate report of unbalanced entries if any were found
     if unbalanced_entries:
