@@ -117,6 +117,153 @@ class TestVCTResponsibilityEntries(unittest.TestCase):
         # Check the results
         self.assertEqual(success_count, 0)
         self.assertEqual(failure_count, 2)
+        
+    @patch('process_japan_exports.post_journal_line')
+    def test_description_sources(self, mock_post_journal_line):
+        """Test that the function uses all possible sources for description."""
+        # Configure the mock to return success for both calls
+        mock_post_journal_line.side_effect = [(True, {}), (True, {})]
+        
+        # Test case 1: Remarks field (already tested in test_full_department_in_description)
+        
+        # Test case 2: 備考 field
+        entry_with_japanese_remarks = self.sample_entry.copy()
+        entry_with_japanese_remarks['credit'] = self.sample_entry['credit'].copy()
+        entry_with_japanese_remarks['credit']['Remarks'] = ''
+        entry_with_japanese_remarks['credit']['備考'] = '日本語の備考'
+        
+        success_count, failure_count = create_vct_responsibility_entries(
+            entry_with_japanese_remarks, 
+            self.mock_token, 
+            self.mock_rate_limiter
+        )
+        
+        # Get the arguments for the first call (debit line)
+        debit_args = mock_post_journal_line.call_args_list[0][0]
+        debit_line = debit_args[0]
+        
+        # Check that the description contains the Japanese remarks
+        expected_description = "VCP.1234 日本語の備考"
+        self.assertEqual(debit_line["Description"], expected_description)
+        
+        # Reset the mock
+        mock_post_journal_line.reset_mock()
+        mock_post_journal_line.side_effect = [(True, {}), (True, {})]
+        
+        # Test case 3: credit_description field
+        entry_with_credit_desc = self.sample_entry.copy()
+        entry_with_credit_desc['credit'] = self.sample_entry['credit'].copy()
+        entry_with_credit_desc['credit']['Remarks'] = ''
+        entry_with_credit_desc['credit_description'] = 'Credit description field'
+        
+        success_count, failure_count = create_vct_responsibility_entries(
+            entry_with_credit_desc, 
+            self.mock_token, 
+            self.mock_rate_limiter
+        )
+        
+        # Get the arguments for the first call (debit line)
+        debit_args = mock_post_journal_line.call_args_list[0][0]
+        debit_line = debit_args[0]
+        
+        # Check that the description contains the credit description
+        expected_description = "VCP.1234 Credit description field"
+        self.assertEqual(debit_line["Description"], expected_description)
+        
+        # Reset the mock
+        mock_post_journal_line.reset_mock()
+        mock_post_journal_line.side_effect = [(True, {}), (True, {})]
+        
+        # Test case 4: main description field
+        entry_with_main_desc = self.sample_entry.copy()
+        entry_with_main_desc['credit'] = self.sample_entry['credit'].copy()
+        entry_with_main_desc['credit']['Remarks'] = ''
+        entry_with_main_desc['description'] = 'Main description field'
+        
+        success_count, failure_count = create_vct_responsibility_entries(
+            entry_with_main_desc, 
+            self.mock_token, 
+            self.mock_rate_limiter
+        )
+        
+        # Get the arguments for the first call (debit line)
+        debit_args = mock_post_journal_line.call_args_list[0][0]
+        debit_line = debit_args[0]
+        
+        # Check that the description contains the main description
+        expected_description = "VCP.1234 Main description field"
+        self.assertEqual(debit_line["Description"], expected_description)
+        
+        # Reset the mock
+        mock_post_journal_line.reset_mock()
+        mock_post_journal_line.side_effect = [(True, {}), (True, {})]
+        
+        # Test case 5: Receipt/Invoice Note(明細) field
+        entry_with_receipt_note = self.sample_entry.copy()
+        entry_with_receipt_note['credit'] = self.sample_entry['credit'].copy()
+        entry_with_receipt_note['credit']['Remarks'] = ''
+        entry_with_receipt_note['credit']['Receipt/Invoice Note(明細)'] = 'Receipt note field'
+        
+        success_count, failure_count = create_vct_responsibility_entries(
+            entry_with_receipt_note, 
+            self.mock_token, 
+            self.mock_rate_limiter
+        )
+        
+        # Get the arguments for the first call (debit line)
+        debit_args = mock_post_journal_line.call_args_list[0][0]
+        debit_line = debit_args[0]
+        
+        # Check that the description contains the receipt note
+        expected_description = "VCP.1234 Receipt note field"
+        self.assertEqual(debit_line["Description"], expected_description)
+        
+        # Reset the mock
+        mock_post_journal_line.reset_mock()
+        mock_post_journal_line.side_effect = [(True, {}), (True, {})]
+        
+        # Test case 6: free_field field
+        entry_with_free_field = self.sample_entry.copy()
+        entry_with_free_field['credit'] = self.sample_entry['credit'].copy()
+        entry_with_free_field['credit']['Remarks'] = ''
+        entry_with_free_field['credit']['free_field'] = 'Free field content'
+        
+        success_count, failure_count = create_vct_responsibility_entries(
+            entry_with_free_field, 
+            self.mock_token, 
+            self.mock_rate_limiter
+        )
+        
+        # Get the arguments for the first call (debit line)
+        debit_args = mock_post_journal_line.call_args_list[0][0]
+        debit_line = debit_args[0]
+        
+        # Check that the description contains the free field content
+        expected_description = "VCP.1234 Free field content"
+        self.assertEqual(debit_line["Description"], expected_description)
 
 if __name__ == '__main__':
-    unittest.main()
+    print("Starting VCT responsibility tests...")
+    # Run the tests and capture the result
+    suite = unittest.TestLoader().loadTestsFromTestCase(TestVCTResponsibilityEntries)
+    result = unittest.TextTestRunner(verbosity=2).run(suite)
+    
+    # Print the test results
+    print("\nTest Results:")
+    print(f"Ran {result.testsRun} tests")
+    print(f"Failures: {len(result.failures)}")
+    print(f"Errors: {len(result.errors)}")
+    
+    # Print details of failures
+    if result.failures:
+        print("\nFailures:")
+        for i, (test, traceback) in enumerate(result.failures):
+            print(f"\nFailure {i+1}: {test}")
+            print(traceback)
+    
+    # Print details of errors
+    if result.errors:
+        print("\nErrors:")
+        for i, (test, traceback) in enumerate(result.errors):
+            print(f"\nError {i+1}: {test}")
+            print(traceback)
