@@ -2,36 +2,19 @@
 
 | Voucher No | Line Type | Company Code | Original Currency | Transformed Currency |
 |------------|-----------|--------------|-------------------|---------------------|
-| VPA-0000151 | debit | VCP | PHP |  |
-| VPA-0000151 | credit | VCP | R-PHP |  |
-| VPA-0000151 | credit | VCP | PHP |  |
-| APA-0000402 | debit | VCP | PHP |  |
-| APA-0000402 | credit | VCP | R-PHP |  |
-| APA-0000402 | debit | VCP | PHP |  |
-| APA-0000402 | credit | VCP | R-PHP |  |
-| APA-0000402 | credit | VCP | PHP |  |
-| APA-0000440 | debit | VCP | PHP |  |
-| APA-0000440 | credit | VCP | R-PHP |  |
-| APA-0000440 | credit | VCP | PHP |  |
-| APA-0000437 | debit | VCP | PHP |  |
-| APA-0000437 | credit | VCP | R-PHP |  |
-| APA-0000437 | credit | VCP | PHP |  |
-| APA-0000425 | debit | VCP | PHP |  |
-| APA-0000425 | credit | VCP | R-PHP |  |
-| APA-0000425 | credit | VCP | PHP |  |
-| APA-0000426 | debit | VCP | PHP |  |
-| APA-0000426 | credit | VCP | R-PHP |  |
-| APA-0000426 | credit | VCP | PHP |  |
-| VPA-0000155 | debit | VCP | PHP |  |
-| VPA-0000155 | credit | VCP | PHP |  |
-| VPA-0000165 | debit | VCP | PHP |  |
-| VPA-0000165 | debit | VCP | PHP |  |
-| VPA-0000165 | credit | VCP | PHP |  |
-| APA-0000439 | debit | VCP | PHP |  |
-| APA-0000439 | credit | VCP | R-PHP |  |
-| APA-0000439 | credit | VCP | PHP |  |
+| APA-0000451 | debit | VCT | NTD |  |
+| APA-0000451 | credit | VCT | NTD |  |
+| APA-0000451 | debit | VCT | NTD |  |
+| APA-0000451 | credit | VCT | NTD |  |
+| APA-0000451 | credit | VCT | NTD |  |
+| APA-0000463 | debit | VCT | NTD |  |
+| APA-0000401 | debit | VCA | USD |  |
+| APA-0000401 | credit | VCA | R-USD |  |
+| APA-0000401 | debit | VCA | USD |  |
+| APA-0000401 | credit | VCA | R-USD |  |
+| APA-0000401 | credit | VCA | R-USD |  |
 
 
-Total modifications: 28
+Total modifications: 11
 
 Note: This report includes all currency code transformations for both debit and credit lines.
