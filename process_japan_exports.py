@@ -1174,16 +1174,19 @@ def process_entries(entries: List[Dict[str, Any]], access_token: str, balance_to
                     
                     # If this voucher is already consolidated in the input data,
                     # only post the credit line for the entry with the consolidated credit
+                    # Initialize credit_success to False
+                    credit_success = False
+                    
                     if not is_already_consolidated or not consolidated_entries:
                         # Process credit line
                         credit_line = create_journal_line(entry, "credit")
-                    # Ensure Document_No matches the voucher_no
-                    credit_line["Document_No"] = entry_voucher_no
-                    # Use the original External_Document_No without modification
-                    logger.info(f"Posting credit line for voucher {entry_voucher_no} with Document_No: {credit_line['Document_No']}")
-                    # Create a deep copy of the credit line to prevent any reference issues
-                    credit_line_copy = json.loads(json.dumps(credit_line))
-                    credit_success, credit_response = post_journal_line(credit_line_copy, access_token, rate_limiter, max_retries)
+                        # Ensure Document_No matches the voucher_no
+                        credit_line["Document_No"] = entry_voucher_no
+                        # Use the original External_Document_No without modification
+                        logger.info(f"Posting credit line for voucher {entry_voucher_no} with Document_No: {credit_line['Document_No']}")
+                        # Create a deep copy of the credit line to prevent any reference issues
+                        credit_line_copy = json.loads(json.dumps(credit_line))
+                        credit_success, credit_response = post_journal_line(credit_line_copy, access_token, rate_limiter, max_retries)
                     
                     if credit_success:
                         logger.info(f"Successfully posted credit line for voucher {entry_voucher_no}")
