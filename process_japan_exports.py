@@ -657,17 +657,40 @@ class RateLimiter:
         logger.info(f"Rate limiting: Recorded failure. Consecutive failures: {self.consecutive_failures}")
 
 
+def analyze_error_response(response_data):
+    """
+    Analyze error response to identify common issues.
+    
+    Args:
+        response_data: The error response data from the API
+        
+    Returns:
+        str: Analysis of the error
+    """
+    if not response_data or not isinstance(response_data, dict):
+        return "Unknown error format"
+        
+    error = response_data.get("error", {})
+    error_code = error.get("code", "")
+    error_message = error.get("message", "")
+    
+    if "validation" in error_message.lower():
+        return f"Validation error: {error_message}"
+    elif "permission" in error_message.lower():
+        return f"Permission error: {error_message}"
+    elif "timeout" in error_message.lower():
+        return f"Timeout error: {error_message}"
+    elif "rate" in error_message.lower() and "limit" in error_message.lower():
+        return f"Rate limiting error: {error_message}"
+    elif "duplicate" in error_message.lower():
+        return f"Duplicate entry error: {error_message}"
+    elif "constraint" in error_message.lower():
+        return f"Constraint violation: {error_message}"
+    else:
+        return f"Other error ({error_code}): {error_message}"
+
 def post_journal_line(journal_line: Dict[str, Any], access_token: str, 
                      rate_limiter: RateLimiter = None, max_retries: int = 3) -> Tuple[bool, Dict[str, Any]]:
-    # Ensure the description field is populated
-    if not journal_line.get("Description"):
-        # Get the document number for logging
-        doc_no = journal_line.get("Document_No", "Unknown")
-        logger.warning(f"Description field is empty for Document_No: {doc_no}. Setting default description.")
-        
-        # Set a default description based on the document number
-        journal_line["Description"] = f"Transaction for {doc_no}"
-    
     """
     Post a journal line to the ERP API with rate limiting and retry logic.
     
@@ -680,6 +703,15 @@ def post_journal_line(journal_line: Dict[str, Any], access_token: str,
     Returns:
         Tuple[bool, Dict[str, Any]]: Success status and response data
     """
+    # Ensure the description field is populated
+    if not journal_line.get("Description"):
+        # Get the document number for logging
+        doc_no = journal_line.get("Document_No", "Unknown")
+        logger.warning(f"Description field is empty for Document_No: {doc_no}. Setting default description.")
+        
+        # Set a default description based on the document number
+        journal_line["Description"] = f"Transaction for {doc_no}"
+    
     # Currency code rules application is now skipped as it's handled in exchange_rate_query.py
     logger.info(f"Currency code rules application skipped as per refactoring")
     
@@ -711,13 +743,25 @@ def post_journal_line(journal_line: Dict[str, Any], access_token: str,
     
     retry_count = 0
     
+    # Log detailed information about the journal line
+    logger.info(f"Full journal line details:")
+    logger.info(f"Document No: {journal_line.get('Document_No')}")
+    logger.info(f"External Document No: {journal_line.get('External_Document_No')}")
+    logger.info(f"Account Type: {journal_line.get('Account_Type')}")
+    logger.info(f"Account No: {journal_line.get('Account_No')}")
+    logger.info(f"Description: {journal_line.get('Description')}")
+    logger.info(f"Currency Code: {journal_line.get('Currency_Code')}")
+    logger.info(f"Amount: {journal_line.get('Amount')}")
+    logger.info(f"Dimensions: {journal_line.get('Shortcut_Dimension_1_Code')}, {journal_line.get('Shortcut_Dimension_2_Code')}")
+    
     while retry_count <= max_retries:
         # Wait before making the request
         rate_limiter.wait_before_request()
         
         try:
-            # Log the request body for debugging
-            logger.info(f"Request body for journal line: {json.dumps(journal_line, indent=2, cls=DecimalEncoder)}")
+            # Log the full request body for debugging
+            logger.info(f"Full request payload: {json.dumps(journal_line, indent=2, cls=DecimalEncoder)}")
+            
             # Log headers (excluding Authorization header for security)
             safe_headers = headers.copy()
             if "Authorization" in safe_headers:
@@ -762,13 +806,26 @@ def post_journal_line(journal_line: Dict[str, Any], access_token: str,
                 # For other HTTP errors, don't retry
                 try:
                     error_data = response.json()
-                    logger.error(f"API error response: {json.dumps(error_data, indent=2)}")
+                    logger.error(f"API error response details: {json.dumps(error_data, indent=2)}")
+                    
+                    # Extract specific error messages if available
+                    if "error" in error_data:
+                        logger.error(f"Error message: {error_data.get('error', {}).get('message', 'Unknown error')}")
+                    
+                    # Analyze the error response
+                    error_analysis = analyze_error_response(error_data)
+                    logger.error(f"Error analysis: {error_analysis}")
+                    
                     return False, error_data
-                except:
-                    return False, {"error": str(e)}
+                except Exception as parse_error:
+                    logger.error(f"Failed to parse error response. Status code: {response.status_code}, Response text: {response.text}")
+                    logger.error(f"Parse error: {str(parse_error)}")
+                    return False, {"error": str(e), "status_code": response.status_code, "response_text": response.text}
                     
         except Exception as e:
             logger.error(f"Error posting journal line: {str(e)}")
+            logger.error(f"Exception type: {type(e).__name__}")
+            logger.error(f"Exception details: {str(e)}")
             rate_limiter.record_failure()
             retry_count += 1
             
@@ -935,9 +992,8 @@ def create_vct_responsibility_entries(entry: Dict[str, Any], access_token: str, 
     external_document_no = entry.get('External_Document_No', voucher_no)
     document_date = entry.get('Document_Date', '')
     
-    # Get the original cost center from the credit entry's department
+    # Get the original department from the credit entry
     original_department = entry.get('credit', {}).get('department', '')
-    original_cost_center = original_department[:3] if original_department else ''
     
     # Get the original description from the credit entry
     original_description = entry.get('credit', {}).get('Remarks', '') or entry.get('description', '')
@@ -946,15 +1002,15 @@ def create_vct_responsibility_entries(entry: Dict[str, Any], access_token: str, 
     original_amount = entry.get('credit', {}).get('amount', 0)
     original_currency = entry.get('credit', {}).get('currency', '')
     
-    # Create the description with cost center prefix
-    vct_description = f"{original_cost_center} {original_description}"
+    # Create the description with department prefix
+    vct_description = f"{original_department} {original_description}"
     
     # Ensure description is not too long
     if len(vct_description) > 100:
         vct_description = vct_description[:100]
         logger.warning(f"Truncated VCT responsibility description to 100 characters: {vct_description}")
     
-    logger.info(f"Creating VCT responsibility entries for voucher {voucher_no} - Original cost center: {original_cost_center}")
+    logger.info(f"Creating VCT responsibility entries for voucher {voucher_no} - Original department: {original_department}")
     
     # Create the debit line for VCT
     debit_line = {
@@ -1184,16 +1240,33 @@ def process_entries(entries: List[Dict[str, Any]], access_token: str, balance_to
                         credit_line["Document_No"] = entry_voucher_no
                         # Use the original External_Document_No without modification
                         logger.info(f"Posting credit line for voucher {entry_voucher_no} with Document_No: {credit_line['Document_No']}")
+                        
+                        # Log detailed information about the credit line before posting
+                        logger.info(f"Credit line details for voucher {entry_voucher_no}:")
+                        logger.info(f"Account Type: {credit_line.get('Account_Type')}")
+                        logger.info(f"Account No: {credit_line.get('Account_No')}")
+                        logger.info(f"Currency Code: {credit_line.get('Currency_Code')}")
+                        logger.info(f"Amount: {credit_line.get('Amount')}")
+                        logger.info(f"Dimensions: {credit_line.get('Shortcut_Dimension_1_Code')}, {credit_line.get('Shortcut_Dimension_2_Code')}")
+                        
                         # Create a deep copy of the credit line to prevent any reference issues
-                        credit_line_copy = json.loads(json.dumps(credit_line))
+                        credit_line_copy = json.loads(json.dumps(credit_line, cls=DecimalEncoder))
                         credit_success, credit_response = post_journal_line(credit_line_copy, access_token, rate_limiter, max_retries)
                     
-                    if credit_success:
-                        logger.info(f"Successfully posted credit line for voucher {entry_voucher_no}")
-                        success_count += 1
-                    else:
-                        logger.error(f"Failed to post credit line for voucher {entry_voucher_no}")
-                        failure_count += 1
+                        if credit_success:
+                            logger.info(f"Successfully posted credit line for voucher {entry_voucher_no}")
+                            success_count += 1
+                        else:
+                            logger.error(f"Failed to post credit line for voucher {entry_voucher_no}")
+                            logger.error(f"Credit line failure details: {json.dumps(credit_response, indent=2, cls=DecimalEncoder)}")
+                            logger.error(f"Original entry data: {json.dumps(entry.get('credit', {}), indent=2, cls=DecimalEncoder)}")
+                            
+                            # Analyze the error response
+                            if isinstance(credit_response, dict) and "error" in credit_response:
+                                error_analysis = analyze_error_response(credit_response)
+                                logger.error(f"Credit line error analysis: {error_analysis}")
+                            
+                            failure_count += 1
                     
                     # Check if this was a V-VC00048 mapping to VCT for non-VCT cost center
                     # This should happen regardless of whether the credit line posting succeeded
@@ -1314,6 +1387,14 @@ def process_entries(entries: List[Dict[str, Any]], access_token: str, balance_to
                     logger.info(f"Posting consolidated credit line for voucher {consolidated_voucher_no} with Document_No: {credit_line['Document_No']} - " +
                                f"Consolidated from {len(valid_entries)} entries")
                     
+                    # Log detailed information about the consolidated credit line before posting
+                    logger.info(f"Consolidated credit line details for voucher {consolidated_voucher_no}:")
+                    logger.info(f"Account Type: {credit_line.get('Account_Type')}")
+                    logger.info(f"Account No: {credit_line.get('Account_No')}")
+                    logger.info(f"Currency Code: {credit_line.get('Currency_Code')}")
+                    logger.info(f"Amount: {credit_line.get('Amount')}")
+                    logger.info(f"Dimensions: {credit_line.get('Shortcut_Dimension_1_Code')}, {credit_line.get('Shortcut_Dimension_2_Code')}")
+                    
                     # Create a deep copy of the credit line to prevent any reference issues
                     credit_line_copy = json.loads(json.dumps(credit_line, cls=DecimalEncoder))
                     credit_success, credit_response = post_journal_line(credit_line_copy, access_token, rate_limiter, max_retries)
@@ -1323,6 +1404,14 @@ def process_entries(entries: List[Dict[str, Any]], access_token: str, balance_to
                         success_count += 1
                     else:
                         logger.error(f"Failed to post consolidated credit line for voucher {consolidated_voucher_no}")
+                        logger.error(f"Consolidated credit line failure details: {json.dumps(credit_response, indent=2, cls=DecimalEncoder)}")
+                        logger.error(f"Original template entry data: {json.dumps(template_entry.get('credit', {}), indent=2, cls=DecimalEncoder)}")
+                        
+                        # Analyze the error response
+                        if isinstance(credit_response, dict) and "error" in credit_response:
+                            error_analysis = analyze_error_response(credit_response)
+                            logger.error(f"Consolidated credit line error analysis: {error_analysis}")
+                        
                         failure_count += 1
                     
                     # Check if this was a V-VC00048 mapping to VCT for non-VCT cost center

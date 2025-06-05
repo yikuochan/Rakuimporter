@@ -2,114 +2,68 @@
 
 ## Overview
 
-This document describes the implementation of Issue #78, which extends the existing functionality of mapping vendor code V-VC00048 to VCT for non-VCT cost centers. The enhancement adds additional debit and credit lines in VCT to record the responsibility of the expense.
+This document describes the implementation of the requirement to use the full department code instead of just the cost center (first 3 characters) in the description field for VCT responsibility entries.
 
-## Background
+## Issue Description
 
-Previously, when a journal entry had vendor code V-VC00048 with a non-VCT cost center (e.g., VCA), the vendor code was mapped to VCT in the credit line. This implementation extends that functionality by adding a new pair of debit and credit lines in VCT to record the responsibility of the expense.
+In the current implementation, when creating VCT responsibility entries for V-VC00048 vendor transactions, only the first 3 characters of the department code (the cost center) are used as a prefix in the description field. According to the new requirement, the full department code should be used instead.
 
-## Implementation Details
+Reference: [GitHub Issue #78](https://github.com/yikuochan/Rakuimporter/issues/78)
 
-### New Function: `create_vct_responsibility_entries`
+## Changes Made
 
-A new helper function `create_vct_responsibility_entries` was added to `process_japan_exports.py`. This function:
+### 1. Modified `create_vct_responsibility_entries` function
 
-1. Creates additional debit and credit lines in VCT for V-VC00048 vendor when the cost center is not VCT
-2. Uses fixed account numbers and department codes as specified in the requirements
-3. Prefixes the description with the original cost center code
-4. Maintains the original currency and amount
+The function was updated to use the full department code instead of extracting just the first 3 characters:
 
+**Before:**
 ```python
-def create_vct_responsibility_entries(entry: Dict[str, Any], access_token: str, rate_limiter: RateLimiter, max_retries: int = 3) -> Tuple[int, int]:
-    """
-    Create additional debit and credit lines in VCT to record the responsibility of expense for V-VC00048 vendor.
-    
-    Args:
-        entry: The original journal entry
-        access_token: OAuth2 access token
-        rate_limiter: RateLimiter instance for managing API call timing
-        max_retries: Maximum number of retry attempts for failed API calls
-    
-    Returns:
-        Tuple[int, int]: Count of successful and failed entries
-    """
-    # Implementation details...
+# Get the original cost center from the credit entry's department
+original_department = entry.get('credit', {}).get('department', '')
+original_cost_center = original_department[:3] if original_department else ''
+
+# Create the description with cost center prefix
+vct_description = f"{original_cost_center} {original_description}"
 ```
 
-### Modifications to `process_entries`
-
-The `process_entries` function was modified to check if a V-VC00048 mapping occurred and, if so, call the new `create_vct_responsibility_entries` function to create the additional entries. This check is performed after successfully posting the credit line for both individual entries and consolidated entries.
-
+**After:**
 ```python
-# Check if this was a V-VC00048 mapping to VCT for non-VCT cost center
-original_vendor_code = entry.get('credit', {}).get('vendor_code', '')
-department = entry.get('credit', {}).get('department', '')
-cost_center = department[:3] if department else ''
+# Get the original department from the credit entry
+original_department = entry.get('credit', {}).get('department', '')
 
-if original_vendor_code == "V-VC00048" and cost_center and cost_center != "VCT":
-    logger.info(f"Creating VCT responsibility entries for mapped vendor V-VC00048 - Voucher: {entry_voucher_no}")
-    vct_success, vct_failure = create_vct_responsibility_entries(entry, access_token, rate_limiter, max_retries)
-    success_count += vct_success
-    failure_count += vct_failure
+# Create the description with department prefix
+vct_description = f"{original_department} {original_description}"
+```
+
+### 2. Updated logging message
+
+The logging message was also updated to reflect the change:
+
+**Before:**
+```python
+logger.info(f"Creating VCT responsibility entries for voucher {voucher_no} - Original cost center: {original_cost_center}")
+```
+
+**After:**
+```python
+logger.info(f"Creating VCT responsibility entries for voucher {voucher_no} - Original department: {original_department}")
 ```
 
 ## Testing
 
-A new test file `test_v_vc00048_vct_responsibility.py` was created to verify the implementation. The tests cover:
+A new test file `test_v_vc00048_vct_responsibility.py` was created to verify that:
 
-1. Basic functionality of the `create_vct_responsibility_entries` function
-2. Handling of consolidated entries
-3. Verification of the format and content of the generated journal lines
+1. The full department code is used in the description field
+2. Description truncation still works correctly if the description is too long
+3. Error handling for post failures works as expected
 
-## Format of Additional Entries
+## Impact
 
-### Debit Line in VCT
+This change ensures that the full department code is included in the description field for VCT responsibility entries, providing more detailed information about the transaction's origin. This will help with tracking and reporting, as users will be able to see the exact department associated with each transaction.
 
-- Account Type: G/L Account
-- Account Number: 18600-10 (fixed)
-- Description: [Original Cost Center] [Original Description]
-- External Document Number: Same as original document number
-- Document Number: Same as original voucher number
-- Department Code: VCT.9999 (fixed)
-- Currency Code: Same as original currency
-- Amount: Same as original amount (positive for debit)
+## Deployment Notes
 
-### Credit Line in VCT
-
-- Account Type: Vendor
-- Account Number: V-VC00048 (fixed)
-- Description: [Original Cost Center] [Original Description]
-- External Document Number: Same as original document number
-- Document Number: Same as original voucher number
-- Department Code: VCT.9999 (fixed)
-- Currency Code: Same as original currency
-- Amount: Same as original amount (negative for credit)
-
-## Example
-
-For a journal entry with:
-- Voucher No: APA-0000401
-- Cost Center: VCA
-- Description: Events
-- Currency: R-USD
-- Amount: 7284.55
-
-The additional entries created in VCT would be:
-
-1. Debit Line:
-   - Account: 18600-10
-   - Description: VCA Events
-   - Department: VCT.9999
-   - Currency: R-USD
-   - Amount: 7284.55
-
-2. Credit Line:
-   - Account: V-VC00048
-   - Description: VCA Events
-   - Department: VCT.9999
-   - Currency: R-USD
-   - Amount: -7284.55
-
-## Conclusion
-
-This implementation successfully extends the existing V-VC00048 mapping functionality to add additional VCT responsibility entries. The code has been tested and verified to work correctly with both individual and consolidated entries.
+1. The changes have been implemented in a new branch: `v-vc00048-vct-responsibility-fix`
+2. No database changes are required
+3. No configuration changes are required
+4. The changes are backward compatible with existing data

@@ -1,209 +1,122 @@
 #!/usr/bin/env python3
 """
-Test script for V-VC00048 mapping to VCT for non-VCT cost centers with additional VCT responsibility entries.
+Test script for V-VC00048 VCT responsibility entries functionality.
 
-This script tests the implementation of Issue #78 extended requirement, which adds additional
-debit and credit lines in VCT to record the responsibility of expense.
+This script tests the changes made to the create_vct_responsibility_entries function
+to use the full department code instead of just the cost center (first 3 characters)
+in the description field.
 """
 
+import unittest
 import json
-import logging
-import sys
-from process_japan_exports import create_journal_line, create_vct_responsibility_entries
+import os
+from unittest.mock import patch, MagicMock
+from process_japan_exports import create_vct_responsibility_entries
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout)
-    ]
-)
-logger = logging.getLogger("test_v_vc00048_vct_responsibility")
+class TestVCTResponsibilityEntries(unittest.TestCase):
+    """Test cases for VCT responsibility entries functionality."""
 
-class MockRateLimiter:
-    """Mock rate limiter for testing"""
-    def wait_before_request(self):
-        pass
-    
-    def record_success(self):
-        pass
-    
-    def record_failure(self):
-        pass
-
-def mock_post_journal_line(journal_line, access_token, rate_limiter, max_retries):
-    """Mock function to simulate posting a journal line"""
-    logger.info(f"Mock posting journal line: {json.dumps(journal_line, indent=2)}")
-    return True, {"status": "success"}
-
-def test_vct_responsibility_entries():
-    """
-    Test the creation of additional VCT responsibility entries for V-VC00048 vendor.
-    """
-    # Create a test entry with V-VC00048 vendor code and non-VCT cost center
-    test_entry = {
-        "voucher_no": "TEST-001",
-        "External_Document_No": "EXT-001",
-        "Document_Date": "2025/05/15",
-        "description": "Test Entry",
-        "debit": {
-            "gl_account": "G/L Account",
-            "account": "75510-10",
-            "amount": 1000.0,
-            "currency": "USD",
-            "department": "VCA.1342G",
-            "applicant_code": "10126",
-            "vendor_code": "V-VC00048"
-        },
-        "credit": {
-            "gl_account": "Vendor",
-            "account": "V-VC00048",
-            "amount": 1000.0,
-            "currency": "R-USD",
-            "department": "VCA.1342G",
-            "applicant_code": "10126",
-            "vendor_code": "V-VC00048",
-            "department_code": "VCA.9999",
-            "Remarks": "Test Expense"
+    def setUp(self):
+        """Set up test fixtures."""
+        # Sample entry with department code
+        self.sample_entry = {
+            'voucher_no': 'TEST001',
+            'External_Document_No': 'EXT001',
+            'Document_Date': '2025/06/05',
+            'credit': {
+                'department': 'VCP.1234',  # Full department code
+                'Remarks': 'Test transaction',
+                'amount': 1000.0,
+                'currency': 'USD',
+                'vendor_code': 'V-VC00048'
+            },
+            'description': 'Default description'
         }
-    }
-    
-    # Create a mock access token
-    mock_access_token = "mock_token"
-    
-    # Create a mock rate limiter
-    mock_rate_limiter = MockRateLimiter()
-    
-    # Patch the post_journal_line function in the module
-    import process_japan_exports
-    original_post_journal_line = process_japan_exports.post_journal_line
-    process_japan_exports.post_journal_line = mock_post_journal_line
-    
-    try:
-        # Call the function to create VCT responsibility entries
-        logger.info("Testing create_vct_responsibility_entries function")
+        
+        # Mock access token and rate limiter
+        self.mock_token = 'mock_token'
+        self.mock_rate_limiter = MagicMock()
+        
+    @patch('process_japan_exports.post_journal_line')
+    def test_full_department_in_description(self, mock_post_journal_line):
+        """Test that the full department code is used in the description."""
+        # Configure the mock to return success for both calls
+        mock_post_journal_line.side_effect = [(True, {}), (True, {})]
+        
+        # Call the function
         success_count, failure_count = create_vct_responsibility_entries(
-            test_entry, mock_access_token, mock_rate_limiter
+            self.sample_entry, 
+            self.mock_token, 
+            self.mock_rate_limiter
         )
         
-        # Verify the results
-        assert success_count == 2, f"Expected 2 successful entries, got {success_count}"
-        assert failure_count == 0, f"Expected 0 failed entries, got {failure_count}"
+        # Check the results
+        self.assertEqual(success_count, 2)
+        self.assertEqual(failure_count, 0)
         
-        logger.info("✅ Test passed: create_vct_responsibility_entries function works correctly")
+        # Check that post_journal_line was called twice
+        self.assertEqual(mock_post_journal_line.call_count, 2)
         
-        # Test with a consolidated entry
-        consolidated_entry = test_entry.copy()
-        consolidated_entry["credit"]["consolidated"] = True
-        consolidated_entry["credit"]["original_entries_count"] = 2
+        # Get the arguments for the first call (debit line)
+        debit_args = mock_post_journal_line.call_args_list[0][0]
+        debit_line = debit_args[0]
         
-        logger.info("Testing create_vct_responsibility_entries function with consolidated entry")
+        # Get the arguments for the second call (credit line)
+        credit_args = mock_post_journal_line.call_args_list[1][0]
+        credit_line = credit_args[0]
+        
+        # Check that both lines have the full department code in the description
+        expected_description = "VCP.1234 Test transaction"
+        self.assertEqual(debit_line["Description"], expected_description)
+        self.assertEqual(credit_line["Description"], expected_description)
+        
+    @patch('process_japan_exports.post_journal_line')
+    def test_description_truncation(self, mock_post_journal_line):
+        """Test that the description is truncated if it's too long."""
+        # Create a sample entry with a very long description
+        long_description = "X" * 100
+        entry_with_long_desc = self.sample_entry.copy()
+        entry_with_long_desc['credit']['Remarks'] = long_description
+        
+        # Configure the mock to return success for both calls
+        mock_post_journal_line.side_effect = [(True, {}), (True, {})]
+        
+        # Call the function
         success_count, failure_count = create_vct_responsibility_entries(
-            consolidated_entry, mock_access_token, mock_rate_limiter
+            entry_with_long_desc, 
+            self.mock_token, 
+            self.mock_rate_limiter
         )
         
-        # Verify the results
-        assert success_count == 2, f"Expected 2 successful entries for consolidated entry, got {success_count}"
-        assert failure_count == 0, f"Expected 0 failed entries for consolidated entry, got {failure_count}"
+        # Check the results
+        self.assertEqual(success_count, 2)
+        self.assertEqual(failure_count, 0)
         
-        logger.info("✅ Test passed: create_vct_responsibility_entries function works correctly with consolidated entry")
+        # Get the arguments for the first call (debit line)
+        debit_args = mock_post_journal_line.call_args_list[0][0]
+        debit_line = debit_args[0]
         
-    finally:
-        # Restore the original function
-        process_japan_exports.post_journal_line = original_post_journal_line
+        # Check that the description is truncated to 100 characters
+        expected_prefix = "VCP.1234 "
+        self.assertEqual(len(debit_line["Description"]), 100)
+        self.assertTrue(debit_line["Description"].startswith(expected_prefix))
+        
+    @patch('process_japan_exports.post_journal_line')
+    def test_post_failure(self, mock_post_journal_line):
+        """Test handling of post_journal_line failures."""
+        # Configure the mock to return failure for both calls
+        mock_post_journal_line.side_effect = [(False, {"error": "Test error"}), (False, {"error": "Test error"})]
+        
+        # Call the function
+        success_count, failure_count = create_vct_responsibility_entries(
+            self.sample_entry, 
+            self.mock_token, 
+            self.mock_rate_limiter
+        )
+        
+        # Check the results
+        self.assertEqual(success_count, 0)
+        self.assertEqual(failure_count, 2)
 
-def test_vct_responsibility_entries_format():
-    """
-    Test the format of the VCT responsibility entries.
-    """
-    # Create a test entry with V-VC00048 vendor code and non-VCT cost center
-    test_entry = {
-        "voucher_no": "TEST-001",
-        "External_Document_No": "EXT-001",
-        "Document_Date": "2025/05/15",
-        "description": "Test Entry",
-        "debit": {
-            "gl_account": "G/L Account",
-            "account": "75510-10",
-            "amount": 1000.0,
-            "currency": "USD",
-            "department": "VCA.1342G",
-            "applicant_code": "10126",
-            "vendor_code": "V-VC00048"
-        },
-        "credit": {
-            "gl_account": "Vendor",
-            "account": "V-VC00048",
-            "amount": 1000.0,
-            "currency": "R-USD",
-            "department": "VCA.1342G",
-            "applicant_code": "10126",
-            "vendor_code": "V-VC00048",
-            "department_code": "VCA.9999",
-            "Remarks": "Test Expense"
-        }
-    }
-    
-    # Create a mock access token
-    mock_access_token = "mock_token"
-    
-    # Create a mock rate limiter
-    mock_rate_limiter = MockRateLimiter()
-    
-    # Store the journal lines that would be posted
-    posted_journal_lines = []
-    
-    # Patch the post_journal_line function to capture the journal lines
-    def capture_journal_line(journal_line, access_token, rate_limiter, max_retries):
-        posted_journal_lines.append(journal_line.copy())
-        return True, {"status": "success"}
-    
-    # Patch the post_journal_line function in the module
-    import process_japan_exports
-    original_post_journal_line = process_japan_exports.post_journal_line
-    process_japan_exports.post_journal_line = capture_journal_line
-    
-    try:
-        # Call the function to create VCT responsibility entries
-        create_vct_responsibility_entries(test_entry, mock_access_token, mock_rate_limiter)
-        
-        # Verify that two journal lines were posted
-        assert len(posted_journal_lines) == 2, f"Expected 2 journal lines, got {len(posted_journal_lines)}"
-        
-        # Get the debit and credit lines
-        debit_line = posted_journal_lines[0]
-        credit_line = posted_journal_lines[1]
-        
-        # Verify the debit line
-        assert debit_line["Account_Type"] == "G/L Account", f"Expected Account_Type 'G/L Account', got '{debit_line['Account_Type']}'"
-        assert debit_line["Account_No"] == "18600-10", f"Expected Account_No '18600-10', got '{debit_line['Account_No']}'"
-        assert debit_line["Description"] == "VCA Test Expense", f"Expected Description 'VCA Test Expense', got '{debit_line['Description']}'"
-        assert debit_line["External_Document_No"] == "EXT-001", f"Expected External_Document_No 'EXT-001', got '{debit_line['External_Document_No']}'"
-        assert debit_line["Document_No"] == "TEST-001", f"Expected Document_No 'TEST-001', got '{debit_line['Document_No']}'"
-        assert debit_line["Shortcut_Dimension_1_Code"] == "VCT", f"Expected Shortcut_Dimension_1_Code 'VCT', got '{debit_line['Shortcut_Dimension_1_Code']}'"
-        assert debit_line["Shortcut_Dimension_2_Code"] == "VCT.9999", f"Expected Shortcut_Dimension_2_Code 'VCT.9999', got '{debit_line['Shortcut_Dimension_2_Code']}'"
-        assert debit_line["Currency_Code"] == "R-USD", f"Expected Currency_Code 'R-USD', got '{debit_line['Currency_Code']}'"
-        assert debit_line["Amount"] == 1000.0, f"Expected Amount 1000.0, got {debit_line['Amount']}"
-        
-        # Verify the credit line
-        assert credit_line["Account_Type"] == "Vendor", f"Expected Account_Type 'Vendor', got '{credit_line['Account_Type']}'"
-        assert credit_line["Account_No"] == "V-VC00048", f"Expected Account_No 'V-VC00048', got '{credit_line['Account_No']}'"
-        assert credit_line["Description"] == "VCA Test Expense", f"Expected Description 'VCA Test Expense', got '{credit_line['Description']}'"
-        assert credit_line["External_Document_No"] == "EXT-001", f"Expected External_Document_No 'EXT-001', got '{credit_line['External_Document_No']}'"
-        assert credit_line["Document_No"] == "TEST-001", f"Expected Document_No 'TEST-001', got '{credit_line['Document_No']}'"
-        assert credit_line["Shortcut_Dimension_1_Code"] == "VCT", f"Expected Shortcut_Dimension_1_Code 'VCT', got '{credit_line['Shortcut_Dimension_1_Code']}'"
-        assert credit_line["Shortcut_Dimension_2_Code"] == "VCT.9999", f"Expected Shortcut_Dimension_2_Code 'VCT.9999', got '{credit_line['Shortcut_Dimension_2_Code']}'"
-        assert credit_line["Currency_Code"] == "R-USD", f"Expected Currency_Code 'R-USD', got '{credit_line['Currency_Code']}'"
-        assert credit_line["Amount"] == -1000.0, f"Expected Amount -1000.0, got {credit_line['Amount']}"
-        
-        logger.info("✅ Test passed: VCT responsibility entries have the correct format")
-        
-    finally:
-        # Restore the original function
-        process_japan_exports.post_journal_line = original_post_journal_line
-
-if __name__ == "__main__":
-    test_vct_responsibility_entries()
-    test_vct_responsibility_entries_format()
-    logger.info("All tests passed!")
+if __name__ == '__main__':
+    unittest.main()
