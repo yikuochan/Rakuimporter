@@ -995,24 +995,27 @@ def create_vct_responsibility_entries(entry: Dict[str, Any], access_token: str, 
     # Get the original department from the credit entry
     original_department = entry.get('credit', {}).get('department', '')
     
-    # Get the original description from the credit entry using the same approach as create_journal_line
-    # First check if there's a Remarks field directly in the credit data
+    # Get the credit data
     credit_data = entry.get('credit', {})
-    original_description = credit_data.get("Remarks", "") or credit_data.get("備考", "")
     
-    # If no 備考 field in credit data, check if there's a credit_description field in the entry
+    # Get the original description from the credit entry
+    # First check the main description field
+    original_description = entry.get("description", "")
+    
+    # If no main description, check credit_description field
     if not original_description and "credit_description" in entry:
         original_description = entry.get("credit_description", "")
-        
+    
+    # If still no description, check Remarks and 備考 fields
+    if not original_description:
+        original_description = credit_data.get("Remarks", "") or credit_data.get("備考", "")
+    
     # If still no description, check Receipt/Invoice Note(明細) and free_field
     if not original_description:
-        # Check each source in order of priority
         if credit_data.get("Receipt/Invoice Note(明細)"):
             original_description = credit_data.get("Receipt/Invoice Note(明細)")
         elif credit_data.get("free_field"):
             original_description = credit_data.get("free_field")
-        elif entry.get("description"):
-            original_description = entry.get("description")
     
     logger.info(f"VCT responsibility description sources - Remarks: '{credit_data.get('Remarks', '')}', 備考: '{credit_data.get('備考', '')}', " +
                f"credit_description: '{entry.get('credit_description', '')}', main description: '{entry.get('description', '')}'")
