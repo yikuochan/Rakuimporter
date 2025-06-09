@@ -444,6 +444,17 @@ def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any
     # For other accounts, use the account field
     if entry_data.get("gl_account", "") == "Vendor":
         account_no = entry_data.get("vendor_code", "")
+        
+        # NEW CODE: Handle V-VC00048 mapping for non-VCT cost centers
+        if account_no == "V-VC00048":
+            # Extract cost center from department code (first 3 characters)
+            department = entry_data.get("department", "")
+            cost_center = department[:3] if department else ""
+            
+            # If cost center is not VCT, change vendor code to VCT
+            if cost_center and cost_center != "VCT":
+                logger.info(f"Mapping vendor V-VC00048 to VCT for non-VCT cost center {cost_center} - Voucher: {entry.get('voucher_no', 'Unknown')}")
+                account_no = "VCT"
     else:
         account_no = entry_data.get("account", "")
     
@@ -646,17 +657,40 @@ class RateLimiter:
         logger.info(f"Rate limiting: Recorded failure. Consecutive failures: {self.consecutive_failures}")
 
 
+def analyze_error_response(response_data):
+    """
+    Analyze error response to identify common issues.
+    
+    Args:
+        response_data: The error response data from the API
+        
+    Returns:
+        str: Analysis of the error
+    """
+    if not response_data or not isinstance(response_data, dict):
+        return "Unknown error format"
+        
+    error = response_data.get("error", {})
+    error_code = error.get("code", "")
+    error_message = error.get("message", "")
+    
+    if "validation" in error_message.lower():
+        return f"Validation error: {error_message}"
+    elif "permission" in error_message.lower():
+        return f"Permission error: {error_message}"
+    elif "timeout" in error_message.lower():
+        return f"Timeout error: {error_message}"
+    elif "rate" in error_message.lower() and "limit" in error_message.lower():
+        return f"Rate limiting error: {error_message}"
+    elif "duplicate" in error_message.lower():
+        return f"Duplicate entry error: {error_message}"
+    elif "constraint" in error_message.lower():
+        return f"Constraint violation: {error_message}"
+    else:
+        return f"Other error ({error_code}): {error_message}"
+
 def post_journal_line(journal_line: Dict[str, Any], access_token: str, 
                      rate_limiter: RateLimiter = None, max_retries: int = 3) -> Tuple[bool, Dict[str, Any]]:
-    # Ensure the description field is populated
-    if not journal_line.get("Description"):
-        # Get the document number for logging
-        doc_no = journal_line.get("Document_No", "Unknown")
-        logger.warning(f"Description field is empty for Document_No: {doc_no}. Setting default description.")
-        
-        # Set a default description based on the document number
-        journal_line["Description"] = f"Transaction for {doc_no}"
-    
     """
     Post a journal line to the ERP API with rate limiting and retry logic.
     
@@ -669,6 +703,15 @@ def post_journal_line(journal_line: Dict[str, Any], access_token: str,
     Returns:
         Tuple[bool, Dict[str, Any]]: Success status and response data
     """
+    # Ensure the description field is populated
+    if not journal_line.get("Description"):
+        # Get the document number for logging
+        doc_no = journal_line.get("Document_No", "Unknown")
+        logger.warning(f"Description field is empty for Document_No: {doc_no}. Setting default description.")
+        
+        # Set a default description based on the document number
+        journal_line["Description"] = f"Transaction for {doc_no}"
+    
     # Currency code rules application is now skipped as it's handled in exchange_rate_query.py
     logger.info(f"Currency code rules application skipped as per refactoring")
     
@@ -700,13 +743,25 @@ def post_journal_line(journal_line: Dict[str, Any], access_token: str,
     
     retry_count = 0
     
+    # Log detailed information about the journal line
+    logger.info(f"Full journal line details:")
+    logger.info(f"Document No: {journal_line.get('Document_No')}")
+    logger.info(f"External Document No: {journal_line.get('External_Document_No')}")
+    logger.info(f"Account Type: {journal_line.get('Account_Type')}")
+    logger.info(f"Account No: {journal_line.get('Account_No')}")
+    logger.info(f"Description: {journal_line.get('Description')}")
+    logger.info(f"Currency Code: {journal_line.get('Currency_Code')}")
+    logger.info(f"Amount: {journal_line.get('Amount')}")
+    logger.info(f"Dimensions: {journal_line.get('Shortcut_Dimension_1_Code')}, {journal_line.get('Shortcut_Dimension_2_Code')}")
+    
     while retry_count <= max_retries:
         # Wait before making the request
         rate_limiter.wait_before_request()
         
         try:
-            # Log the request body for debugging
-            logger.info(f"Request body for journal line: {json.dumps(journal_line, indent=2, cls=DecimalEncoder)}")
+            # Log the full request body for debugging
+            logger.info(f"Full request payload: {json.dumps(journal_line, indent=2, cls=DecimalEncoder)}")
+            
             # Log headers (excluding Authorization header for security)
             safe_headers = headers.copy()
             if "Authorization" in safe_headers:
@@ -751,13 +806,26 @@ def post_journal_line(journal_line: Dict[str, Any], access_token: str,
                 # For other HTTP errors, don't retry
                 try:
                     error_data = response.json()
-                    logger.error(f"API error response: {json.dumps(error_data, indent=2)}")
+                    logger.error(f"API error response details: {json.dumps(error_data, indent=2)}")
+                    
+                    # Extract specific error messages if available
+                    if "error" in error_data:
+                        logger.error(f"Error message: {error_data.get('error', {}).get('message', 'Unknown error')}")
+                    
+                    # Analyze the error response
+                    error_analysis = analyze_error_response(error_data)
+                    logger.error(f"Error analysis: {error_analysis}")
+                    
                     return False, error_data
-                except:
-                    return False, {"error": str(e)}
+                except Exception as parse_error:
+                    logger.error(f"Failed to parse error response. Status code: {response.status_code}, Response text: {response.text}")
+                    logger.error(f"Parse error: {str(parse_error)}")
+                    return False, {"error": str(e), "status_code": response.status_code, "response_text": response.text}
                     
         except Exception as e:
             logger.error(f"Error posting journal line: {str(e)}")
+            logger.error(f"Exception type: {type(e).__name__}")
+            logger.error(f"Exception details: {str(e)}")
             rate_limiter.record_failure()
             retry_count += 1
             
@@ -903,6 +971,156 @@ def generate_currency_modification_report(entries: List[Dict[str, Any]], output_
     return modifications
 
 
+def create_vct_responsibility_entries(entry: Dict[str, Any], access_token: str, rate_limiter: RateLimiter, max_retries: int = 3) -> Tuple[int, int]:
+    """
+    Create additional debit and credit lines in VCT to record the responsibility of expense for V-VC00048 vendor.
+    
+    Args:
+        entry: The original journal entry
+        access_token: OAuth2 access token
+        rate_limiter: RateLimiter instance for managing API call timing
+        max_retries: Maximum number of retry attempts for failed API calls
+    
+    Returns:
+        Tuple[int, int]: Count of successful and failed entries
+    """
+    success_count = 0
+    failure_count = 0
+    
+    # Extract necessary information from the original entry
+    voucher_no = entry.get('voucher_no', 'Unknown')
+    external_document_no = entry.get('External_Document_No', voucher_no)
+    document_date = entry.get('Document_Date', '')
+    
+    # Get the original department from the credit entry
+    original_department = entry.get('credit', {}).get('department', '')
+    
+    # Get the credit data
+    credit_data = entry.get('credit', {})
+    
+    # Get the original description from the credit entry
+    # First check the main description field
+    original_description = entry.get("description", "")
+    
+    # If no main description, check credit_description field
+    if not original_description and "credit_description" in entry:
+        original_description = entry.get("credit_description", "")
+    
+    # If still no description, check Remarks and 備考 fields
+    if not original_description:
+        original_description = credit_data.get("Remarks", "") or credit_data.get("備考", "")
+    
+    # If still no description, check Receipt/Invoice Note(明細) and free_field
+    if not original_description:
+        if credit_data.get("Receipt/Invoice Note(明細)"):
+            original_description = credit_data.get("Receipt/Invoice Note(明細)")
+        elif credit_data.get("free_field"):
+            original_description = credit_data.get("free_field")
+    
+    logger.info(f"VCT responsibility description sources - Remarks: '{credit_data.get('Remarks', '')}', 備考: '{credit_data.get('備考', '')}', " +
+               f"credit_description: '{entry.get('credit_description', '')}', main description: '{entry.get('description', '')}'")
+    logger.info(f"Final VCT responsibility description: '{original_description}'")
+    
+    # Get the original amount and currency from the credit entry
+    original_amount = entry.get('credit', {}).get('amount', 0)
+    original_currency = entry.get('credit', {}).get('currency', '')
+    
+    # Create the description with department prefix
+    vct_description = f"{original_department} {original_description}"
+    
+    # Ensure description is not too long
+    if len(vct_description) > 100:
+        vct_description = vct_description[:100]
+        logger.warning(f"Truncated VCT responsibility description to 100 characters: {vct_description}")
+    
+    logger.info(f"Creating VCT responsibility entries for voucher {voucher_no} - Original department: {original_department}")
+    
+    # Create the debit line for VCT
+    debit_line = {
+        "Journal_Template_Name": JOURNAL_TEMPLATE_NAME,
+        "Journal_Batch_Name": JOURNAL_BATCH_NAME,
+        "Document_Type": DOCUMENT_TYPE,
+        "External_Document_No": external_document_no,
+        "Document_No": voucher_no,
+        "Document_Date": convert_date_format(document_date),
+        "Account_Type": "G/L Account",
+        "Account_No": "18600-10",  # Fixed account number
+        "Description": vct_description,
+        "Currency_Code": original_currency,
+        "Amount": original_amount,
+        "Shortcut_Dimension_1_Code": "VCT",
+        "Shortcut_Dimension_2_Code": "VCT.9999",  # Fixed department code
+        "ShortcutDimCode3": "",
+        "ShortcutDimCode4": "",
+        "ShortcutDimCode5": "",
+        "ShortcutDimCode6": "",
+        "ShortcutDimCode7": "",
+        "ShortcutDimCode8": "",
+        "ShortcutDimCode9": "",
+        "ShortcutDimCode10": "",
+        "ShortcutDimCode11": "",
+        "ShortcutDimCode12": "",
+        "ShortcutDimCode13": "",
+        "ShortcutDimCode14": "",
+        "ShortcutDimCode15": ""
+    }
+    
+    # Create the credit line for VCT
+    credit_line = {
+        "Journal_Template_Name": JOURNAL_TEMPLATE_NAME,
+        "Journal_Batch_Name": JOURNAL_BATCH_NAME,
+        "Document_Type": DOCUMENT_TYPE,
+        "External_Document_No": external_document_no,
+        "Document_No": voucher_no,
+        "Document_Date": convert_date_format(document_date),
+        "Account_Type": "Vendor",
+        "Account_No": "V-VC00048",  # Fixed vendor code
+        "Description": vct_description,
+        "Currency_Code": original_currency,
+        "Amount": -original_amount,  # Negative for credit
+        "Shortcut_Dimension_1_Code": "VCT",
+        "Shortcut_Dimension_2_Code": "VCT.9999",  # Fixed department code
+        "ShortcutDimCode3": "",
+        "ShortcutDimCode4": "",
+        "ShortcutDimCode5": "",
+        "ShortcutDimCode6": "",
+        "ShortcutDimCode7": "",
+        "ShortcutDimCode8": "",
+        "ShortcutDimCode9": "",
+        "ShortcutDimCode10": "",
+        "ShortcutDimCode11": "",
+        "ShortcutDimCode12": "",
+        "ShortcutDimCode13": "",
+        "ShortcutDimCode14": "",
+        "ShortcutDimCode15": ""
+    }
+    
+    # Post the debit line
+    logger.info(f"Posting VCT responsibility debit line for voucher {voucher_no}")
+    debit_line_copy = json.loads(json.dumps(debit_line, cls=DecimalEncoder))
+    debit_success, debit_response = post_journal_line(debit_line_copy, access_token, rate_limiter, max_retries)
+    
+    if debit_success:
+        logger.info(f"Successfully posted VCT responsibility debit line for voucher {voucher_no}")
+        success_count += 1
+    else:
+        logger.error(f"Failed to post VCT responsibility debit line for voucher {voucher_no}")
+        failure_count += 1
+    
+    # Post the credit line
+    logger.info(f"Posting VCT responsibility credit line for voucher {voucher_no}")
+    credit_line_copy = json.loads(json.dumps(credit_line, cls=DecimalEncoder))
+    credit_success, credit_response = post_journal_line(credit_line_copy, access_token, rate_limiter, max_retries)
+    
+    if credit_success:
+        logger.info(f"Successfully posted VCT responsibility credit line for voucher {voucher_no}")
+        success_count += 1
+    else:
+        logger.error(f"Failed to post VCT responsibility credit line for voucher {voucher_no}")
+        failure_count += 1
+    
+    return success_count, failure_count
+
 def process_entries(entries: List[Dict[str, Any]], access_token: str, balance_tolerance: float = 0.01, 
                    skip_unbalanced: bool = False, unbalanced_report_file: str = "unbalanced_entries_report.md",
                    base_delay: float = 5.0, max_delay: float = 10.0, backoff_factor: float = 2.0, 
@@ -1035,6 +1253,9 @@ def process_entries(entries: List[Dict[str, Any]], access_token: str, balance_to
                     
                     # If this voucher is already consolidated in the input data,
                     # only post the credit line for the entry with the consolidated credit
+                    # Initialize credit_success to False
+                    credit_success = False
+                    
                     if not is_already_consolidated or not consolidated_entries:
                         # Process credit line
                         credit_line = create_journal_line(entry, "credit")
@@ -1042,16 +1263,45 @@ def process_entries(entries: List[Dict[str, Any]], access_token: str, balance_to
                         credit_line["Document_No"] = entry_voucher_no
                         # Use the original External_Document_No without modification
                         logger.info(f"Posting credit line for voucher {entry_voucher_no} with Document_No: {credit_line['Document_No']}")
-                        # Create a deep copy of the credit line to prevent any reference issues
-                        credit_line_copy = json.loads(json.dumps(credit_line))
-                        credit_success, credit_response = post_journal_line(credit_line_copy, access_token, rate_limiter, max_retries)
                         
+                        # Log detailed information about the credit line before posting
+                        logger.info(f"Credit line details for voucher {entry_voucher_no}:")
+                        logger.info(f"Account Type: {credit_line.get('Account_Type')}")
+                        logger.info(f"Account No: {credit_line.get('Account_No')}")
+                        logger.info(f"Currency Code: {credit_line.get('Currency_Code')}")
+                        logger.info(f"Amount: {credit_line.get('Amount')}")
+                        logger.info(f"Dimensions: {credit_line.get('Shortcut_Dimension_1_Code')}, {credit_line.get('Shortcut_Dimension_2_Code')}")
+                        
+                        # Create a deep copy of the credit line to prevent any reference issues
+                        credit_line_copy = json.loads(json.dumps(credit_line, cls=DecimalEncoder))
+                        credit_success, credit_response = post_journal_line(credit_line_copy, access_token, rate_limiter, max_retries)
+                    
                         if credit_success:
                             logger.info(f"Successfully posted credit line for voucher {entry_voucher_no}")
                             success_count += 1
                         else:
                             logger.error(f"Failed to post credit line for voucher {entry_voucher_no}")
+                            logger.error(f"Credit line failure details: {json.dumps(credit_response, indent=2, cls=DecimalEncoder)}")
+                            logger.error(f"Original entry data: {json.dumps(entry.get('credit', {}), indent=2, cls=DecimalEncoder)}")
+                            
+                            # Analyze the error response
+                            if isinstance(credit_response, dict) and "error" in credit_response:
+                                error_analysis = analyze_error_response(credit_response)
+                                logger.error(f"Credit line error analysis: {error_analysis}")
+                            
                             failure_count += 1
+                    
+                    # Check if this was a V-VC00048 mapping to VCT for non-VCT cost center
+                    # This should happen regardless of whether the credit line posting succeeded
+                    original_vendor_code = entry.get('credit', {}).get('vendor_code', '')
+                    department = entry.get('credit', {}).get('department', '')
+                    cost_center = department[:3] if department else ''
+                    
+                    if original_vendor_code == "V-VC00048" and cost_center and cost_center != "VCT":
+                        logger.info(f"Creating VCT responsibility entries for mapped vendor V-VC00048 - Voucher: {entry_voucher_no}")
+                        vct_success, vct_failure = create_vct_responsibility_entries(entry, access_token, rate_limiter, max_retries)
+                        success_count += vct_success
+                        failure_count += vct_failure
                 
                 # If this voucher is already consolidated and we have consolidated entries,
                 # post the consolidated credit line once
@@ -1152,24 +1402,52 @@ def process_entries(entries: List[Dict[str, Any]], access_token: str, balance_to
                         logger.error(f"Failed to post debit line for voucher {entry_voucher_no}")
                         failure_count += 1
                 
-                # Process the consolidated credit line
-                credit_line = create_journal_line(template_entry, "credit")
-                # Ensure Document_No matches the template entry's voucher_no
-                credit_line["Document_No"] = consolidated_voucher_no
-                # Use the original External_Document_No without modification
-                logger.info(f"Posting consolidated credit line for voucher {consolidated_voucher_no} with Document_No: {credit_line['Document_No']} - " +
-                           f"Consolidated from {len(valid_entries)} entries")
-                
-                # Create a deep copy of the credit line to prevent any reference issues
-                credit_line_copy = json.loads(json.dumps(credit_line, cls=DecimalEncoder))
-                credit_success, credit_response = post_journal_line(credit_line_copy, access_token, rate_limiter, max_retries)
-                
-                if credit_success:
-                    logger.info(f"Successfully posted consolidated credit line for voucher {consolidated_voucher_no}")
-                    success_count += 1
-                else:
-                    logger.error(f"Failed to post consolidated credit line for voucher {consolidated_voucher_no}")
-                    failure_count += 1
+                    # Process the consolidated credit line
+                    credit_line = create_journal_line(template_entry, "credit")
+                    # Ensure Document_No matches the template entry's voucher_no
+                    credit_line["Document_No"] = consolidated_voucher_no
+                    # Use the original External_Document_No without modification
+                    logger.info(f"Posting consolidated credit line for voucher {consolidated_voucher_no} with Document_No: {credit_line['Document_No']} - " +
+                               f"Consolidated from {len(valid_entries)} entries")
+                    
+                    # Log detailed information about the consolidated credit line before posting
+                    logger.info(f"Consolidated credit line details for voucher {consolidated_voucher_no}:")
+                    logger.info(f"Account Type: {credit_line.get('Account_Type')}")
+                    logger.info(f"Account No: {credit_line.get('Account_No')}")
+                    logger.info(f"Currency Code: {credit_line.get('Currency_Code')}")
+                    logger.info(f"Amount: {credit_line.get('Amount')}")
+                    logger.info(f"Dimensions: {credit_line.get('Shortcut_Dimension_1_Code')}, {credit_line.get('Shortcut_Dimension_2_Code')}")
+                    
+                    # Create a deep copy of the credit line to prevent any reference issues
+                    credit_line_copy = json.loads(json.dumps(credit_line, cls=DecimalEncoder))
+                    credit_success, credit_response = post_journal_line(credit_line_copy, access_token, rate_limiter, max_retries)
+                    
+                    if credit_success:
+                        logger.info(f"Successfully posted consolidated credit line for voucher {consolidated_voucher_no}")
+                        success_count += 1
+                    else:
+                        logger.error(f"Failed to post consolidated credit line for voucher {consolidated_voucher_no}")
+                        logger.error(f"Consolidated credit line failure details: {json.dumps(credit_response, indent=2, cls=DecimalEncoder)}")
+                        logger.error(f"Original template entry data: {json.dumps(template_entry.get('credit', {}), indent=2, cls=DecimalEncoder)}")
+                        
+                        # Analyze the error response
+                        if isinstance(credit_response, dict) and "error" in credit_response:
+                            error_analysis = analyze_error_response(credit_response)
+                            logger.error(f"Consolidated credit line error analysis: {error_analysis}")
+                        
+                        failure_count += 1
+                    
+                    # Check if this was a V-VC00048 mapping to VCT for non-VCT cost center
+                    # This should happen regardless of whether the credit line posting succeeded
+                    original_vendor_code = template_entry.get('credit', {}).get('vendor_code', '')
+                    department = template_entry.get('credit', {}).get('department', '')
+                    cost_center = department[:3] if department else ''
+                    
+                    if original_vendor_code == "V-VC00048" and cost_center and cost_center != "VCT":
+                        logger.info(f"Creating VCT responsibility entries for consolidated mapped vendor V-VC00048 - Voucher: {consolidated_voucher_no}")
+                        vct_success, vct_failure = create_vct_responsibility_entries(template_entry, access_token, rate_limiter, max_retries)
+                        success_count += vct_success
+                        failure_count += vct_failure
     
     # Generate report of unbalanced entries if any were found
     if unbalanced_entries:
