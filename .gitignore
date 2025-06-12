@@ -33,6 +33,7 @@ env.bak/
 venv.bak/
 
 # IDE
+.clinerules/
 .idea/
 .vscode/
 *.swp
