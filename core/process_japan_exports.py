@@ -560,6 +560,27 @@ def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any
     # Use the final amount
     amount = converted_amount
     
+    # Determine intercompany code for ShortcutDimCode3
+    intercompany_code = ""
+
+    # For debit lines with account 18600-10, set intercompany code to the original cost center
+    if entry_type == "debit" and account_no == "18600-10":
+        # Extract cost center from department code (first 3 characters)
+        department = entry_data.get("department", "")
+        intercompany_code = department[:3] if department else ""
+        logger.info(f"Setting intercompany code to {intercompany_code} for debit line with account 18600-10 - Voucher: {entry.get('voucher_no', 'Unknown')}")
+
+    # For credit lines, set intercompany code to "VCT" if cost center is not VCT
+    elif entry_type == "credit":
+        # Extract cost center from department code (first 3 characters)
+        department = entry_data.get("department", "")
+        cost_center = department[:3] if department else ""
+        
+        # If cost center is not VCT, set intercompany code to "VCT"
+        if cost_center and cost_center != "VCT":
+            intercompany_code = "VCT"
+            logger.info(f"Setting intercompany code to VCT for credit line with cost center {cost_center} - Voucher: {entry.get('voucher_no', 'Unknown')}")
+
     # Create the journal line payload
     journal_line = {
         "Journal_Template_Name": JOURNAL_TEMPLATE_NAME,
@@ -575,7 +596,7 @@ def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any
         "Amount": amount,
         "Shortcut_Dimension_1_Code": company_code,
         "Shortcut_Dimension_2_Code": shortcut_dim_2_code,
-        "ShortcutDimCode3": "",
+        "ShortcutDimCode3": intercompany_code,
         "ShortcutDimCode4": shortcut_dim_code4,
         "ShortcutDimCode5": "",
         "ShortcutDimCode6": "",
@@ -1035,6 +1056,9 @@ def create_vct_responsibility_entries(entry: Dict[str, Any], access_token: str, 
     
     logger.info(f"Creating VCT responsibility entries for voucher {voucher_no} - Original department: {original_department}")
     
+    # Extract cost center from original department (first 3 characters)
+    original_cost_center = original_department[:3] if original_department else ""
+    
     # Create the debit line for VCT
     debit_line = {
         "Journal_Template_Name": JOURNAL_TEMPLATE_NAME,
@@ -1050,7 +1074,7 @@ def create_vct_responsibility_entries(entry: Dict[str, Any], access_token: str, 
         "Amount": original_amount,
         "Shortcut_Dimension_1_Code": "VCT",
         "Shortcut_Dimension_2_Code": "VCT.9999",  # Fixed department code
-        "ShortcutDimCode3": "",
+        "ShortcutDimCode3": original_cost_center,  # Set intercompany code to original cost center
         "ShortcutDimCode4": "",
         "ShortcutDimCode5": "",
         "ShortcutDimCode6": "",
@@ -1064,6 +1088,8 @@ def create_vct_responsibility_entries(entry: Dict[str, Any], access_token: str, 
         "ShortcutDimCode14": "",
         "ShortcutDimCode15": ""
     }
+    
+    logger.info(f"Setting intercompany code to {original_cost_center} for VCT responsibility debit line - Voucher: {voucher_no}")
     
     # Create the credit line for VCT
     credit_line = {
@@ -1080,7 +1106,7 @@ def create_vct_responsibility_entries(entry: Dict[str, Any], access_token: str, 
         "Amount": -original_amount,  # Negative for credit
         "Shortcut_Dimension_1_Code": "VCT",
         "Shortcut_Dimension_2_Code": "VCT.9999",  # Fixed department code
-        "ShortcutDimCode3": "",
+        "ShortcutDimCode3": "VCT",  # Set intercompany code to VCT for credit line
         "ShortcutDimCode4": "",
         "ShortcutDimCode5": "",
         "ShortcutDimCode6": "",
@@ -1094,6 +1120,8 @@ def create_vct_responsibility_entries(entry: Dict[str, Any], access_token: str, 
         "ShortcutDimCode14": "",
         "ShortcutDimCode15": ""
     }
+    
+    logger.info(f"Setting intercompany code to VCT for VCT responsibility credit line - Voucher: {voucher_no}")
     
     # Post the debit line
     logger.info(f"Posting VCT responsibility debit line for voucher {voucher_no}")
