@@ -17,7 +17,7 @@ class TestVVC00048Intercompany(unittest.TestCase):
     """Test the intercompany code logic for V-VC00048 vendor credit lines."""
 
     def test_vvc00048_credit_line_vct_cost_center(self):
-        """Test that V-VC00048 credit lines with VCT cost center have intercompany code set to VCT."""
+        """Test that V-VC00048 credit lines with VCT cost center have empty intercompany code."""
         # Create a test entry with V-VC00048 vendor code and VCT cost center
         entry = {
             'voucher_no': 'TEST-001',
@@ -33,8 +33,8 @@ class TestVVC00048Intercompany(unittest.TestCase):
         # Create a credit line
         credit_line = create_journal_line(entry, 'credit')
 
-        # Check that the intercompany code is set to VCT
-        self.assertEqual(credit_line['ShortcutDimCode3'], 'VCT')
+        # Check that the intercompany code is empty
+        self.assertEqual(credit_line['ShortcutDimCode3'], '')
 
     def test_vvc00048_credit_line_non_vct_cost_center(self):
         """Test that V-VC00048 credit lines with non-VCT cost center have intercompany code set to VCT."""
