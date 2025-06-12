@@ -22,6 +22,9 @@ wheels/
 
 # Environment
 .env
+.env.backup*
+.env.github
+.env.3
 .venv
 env/
 venv/
