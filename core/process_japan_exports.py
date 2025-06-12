@@ -1106,7 +1106,7 @@ def create_vct_responsibility_entries(entry: Dict[str, Any], access_token: str, 
         "Amount": -original_amount,  # Negative for credit
         "Shortcut_Dimension_1_Code": "VCT",
         "Shortcut_Dimension_2_Code": "VCT.9999",  # Fixed department code
-        "ShortcutDimCode3": "VCT",  # Set intercompany code to VCT for credit line
+        "ShortcutDimCode3": "",  # Leave intercompany code empty for credit line
         "ShortcutDimCode4": "",
         "ShortcutDimCode5": "",
         "ShortcutDimCode6": "",
@@ -1121,7 +1121,7 @@ def create_vct_responsibility_entries(entry: Dict[str, Any], access_token: str, 
         "ShortcutDimCode15": ""
     }
     
-    logger.info(f"Setting intercompany code to VCT for VCT responsibility credit line - Voucher: {voucher_no}")
+    logger.info(f"Setting intercompany code to empty for VCT responsibility credit line - Voucher: {voucher_no}")
     
     # Post the debit line
     logger.info(f"Posting VCT responsibility debit line for voucher {voucher_no}")
