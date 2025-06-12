@@ -15,44 +15,50 @@ This section describes the components and their interactions within the CSV proc
 ```mermaid
 graph TD
     %% Main Data Flow
-    CSV[Incoming CSV Files<br>Various Encodings] --> CC[charset_converter.py]
-    CC -->|UTF-8 CSV Files| CSVJSON[csv_to_json_converter.py]
-    CSVJSON -->|Structured JSON| PJE[process_japan_exports.py]
+    CSV[Incoming CSV Files<br>Various Encodings] --> CC[core/charset_converter.py]
+    CC -->|UTF-8 CSV Files| CSVJSON[core/csv_to_json_converter.py]
+    CSVJSON -->|Structured JSON| PJE[core/process_japan_exports.py]
     PJE -->|Authenticated API Calls| ERP[ERP System<br>Microsoft Dynamics BC]
     
     %% Authentication Flow
-    OTH[oauth_token_helper.py] -->|OAuth Token| PJE
+    OTH[utils/oauth_token_helper.py] -->|OAuth Token| PJE
     
     %% Currency Conversion Flow
-    ERA[exchange_rate_api.py] -->|Exchange Rates| PJE
-    CCM[company_currency_mapping.py] -->|Currency Rules| ERA
+    ERA[core/exchange_rate_api.py] -->|Exchange Rates| PJE
+    CCM[utils/company_currency_mapping.py] -->|Currency Rules| ERA
+    ERQ[core/exchange_rate_query.py] -->|Rate Queries| ERA
+    CC_MOD[core/currency_converter.py] -->|Currency Conversion| PJE
+    
+    %% Environment Configuration
+    ENV[utils/env_config.py] -->|Environment Variables| PJE
+    ENV -->|Environment Variables| OTH
     
     %% Subprocesses
-    subgraph "charset_converter.py"
+    subgraph "core/charset_converter.py"
         CC1[Detect Encoding] --> CC2[Convert to UTF-8]
         CC2 --> CC3[Validate Conversion]
     end
     
-    subgraph "csv_to_json_converter.py"
+    subgraph "core/csv_to_json_converter.py"
         CSV1[Fix Line Breaks] --> CSV2[Process Headers]
         CSV2 --> CSV3[Process Debit/Credit Pairs]
         CSV3 --> CSV4[Normalize Currency]
         CSV4 --> CSV5[Consolidate Entries]
     end
     
-    subgraph "process_japan_exports.py"
+    subgraph "core/process_japan_exports.py"
         PJE1[Create Journal Lines] --> PJE2[Transform Currency]
         PJE2 --> PJE3[Post to API with Rate Limiting]
         PJE3 --> PJE4[Generate Reports]
         PJE5[Verify Balanced Amounts] --> PJE3
     end
     
-    subgraph "oauth_token_helper.py"
+    subgraph "utils/oauth_token_helper.py"
         OTH1[Acquire Token] --> OTH2[Handle SSL Verification]
         OTH2 --> OTH3[Provide Authorization Header]
     end
     
-    subgraph "exchange_rate_api.py"
+    subgraph "core/exchange_rate_api.py"
         ERA1[Get Company Rates] --> ERA2[Find Rate]
         ERA2 --> ERA3[Calculate Cross-Rates]
         ERA4[Cache Exchange Rates] --> ERA1
@@ -61,7 +67,24 @@ graph TD
 
 ### Component Descriptions
 
-#### `charset_converter.py`
+#### Project Structure
+The project is organized into the following main directories:
+* **core/**: Contains the main processing scripts for the data pipeline
+* **utils/**: Contains utility scripts and helper functions
+* **docs/**: Contains documentation files
+* **examples/**: Contains example data files
+* **Temp/**: Contains temporary files and test scripts
+* **Tools/**: Contains utility tools and scripts for maintenance and debugging
+  * **description_fix.py**: Script to fix description field issues in process_japan_exports.py
+  * **description_fix_v2.py**: Updated version of the description fix script
+  * **verify_description_fix.py**: Script to verify the description field fix
+  * **run_test.py**: Script to run a specific test from the test_process_japan_exports.py test suite
+  * **run_tests.py**: Script to run multiple specific tests from the test_process_japan_exports.py test suite
+  * **sync_client_secret.py**: Script to synchronize the client secret in the .env file with environment variables
+
+#### Core Components
+
+#### `core/charset_converter.py`
 * **Responsibility**: Detects the character encoding of input CSV files (e.g., Shift-JIS, EUC-JP). Converts the files from their original encoding to UTF-8 to ensure compatibility and prevent data corruption during subsequent processing steps.
 * **Key Functions**:
   * Detects file encoding using chardet with confidence scoring
@@ -70,7 +93,7 @@ graph TD
   * Supports Japanese text optimization with specialized encoding detection
   * Provides detailed logging of the conversion process
 
-#### `csv_to_json_converter.py`
+#### `core/csv_to_json_converter.py`
 * **Responsibility**: Takes the UTF-8 encoded CSV files as input and converts them into a structured JSON format. This script handles the complex mapping of CSV columns (including a two-line header) to JSON fields, performs data normalization (e.g., currency codes), applies specific business logic for GL account and vendor processing, and truncates descriptions. The output is an intermediate JSON file.
 * **Key Functions**:
   * Handles CSV files with line breaks in quoted fields
@@ -81,7 +104,7 @@ graph TD
   * Applies business rules for account and department code processing
   * Truncates descriptions to 100 characters (later further truncated to 50 in process_japan_exports.py)
 
-#### `process_japan_exports.py`
+#### `core/process_japan_exports.py`
 * **Responsibility**: This is the main ERP integration script. It takes the structured JSON file (generated by `csv_to_json_converter.py`) as input. It then transforms each JSON entry into two journal lines (debit and credit), authenticates with the ERP system (using `oauth_token_helper.py`), maps the JSON data to the ERP API payload structure, and posts the data to Microsoft Dynamics Business Central.
 * **Key Functions**:
   * Creates journal line payloads for API from JSON entries
@@ -91,15 +114,16 @@ graph TD
   * Generates reports for unbalanced entries and currency modifications
   * Handles API errors with retry logic
 
-#### `oauth_token_helper.py`
-* **Responsibility**: Manages the acquisition and caching/refreshing of OAuth 2.0 access tokens required for authenticating API calls to the Microsoft Dynamics Business Central ERP system. This ensures secure communication.
+#### `core/currency_converter.py`
+* **Responsibility**: Provides currency conversion functionality using exchange rates from the exchange_rate_query module.
 * **Key Functions**:
-  * Acquires OAuth tokens from Microsoft Azure AD
-  * Manages SSL certificate validation (currently disabled for development)
-  * Provides authorization headers for API requests
-  * Handles token expiration and refresh
+  * Converts amounts between different currencies
+  * Uses Decimal type for precise financial calculations
+  * Applies rounding only at the final step to avoid cumulative errors
+  * Supports conversion through intermediate currencies
+  * Maps region codes to their respective currencies
 
-#### `exchange_rate_api.py`
+#### `core/exchange_rate_api.py`
 * **Responsibility**: Manages currency exchange rate calculations and retrieval from the Business Central API.
 * **Key Functions**:
   * Retrieves exchange rates from Business Central API
@@ -108,23 +132,48 @@ graph TD
   * Handles various currency code formats
   * Integrates with company_currency_mapping.py for currency rules
 
-#### `company_currency_mapping.py`
+#### `core/exchange_rate_query.py`
+* **Responsibility**: Provides functions to query exchange rates from various sources.
+* **Key Functions**:
+  * Retrieves exchange rates from Excel files
+  * Supports querying rates for specific dates
+  * Handles rate conversion and normalization
+
+#### Utility Components
+
+#### `utils/oauth_token_helper.py`
+* **Responsibility**: Manages the acquisition and caching/refreshing of OAuth 2.0 access tokens required for authenticating API calls to the Microsoft Dynamics Business Central ERP system. This ensures secure communication.
+* **Key Functions**:
+  * Acquires OAuth tokens from Microsoft Azure AD
+  * Manages SSL certificate validation (currently disabled for development)
+  * Provides authorization headers for API requests
+  * Handles token expiration and refresh
+
+#### `utils/company_currency_mapping.py`
 * **Responsibility**: Provides mapping between company codes and their home currencies, and handles currency code normalization.
 * **Key Functions**:
   * Defines company to home currency mappings
   * Normalizes currency codes
   * Provides functions to get all variants of a currency code
 
+#### `utils/env_config.py`
+* **Responsibility**: Manages environment configuration and provides access to environment variables.
+* **Key Functions**:
+  * Loads environment variables from .env files
+  * Provides type conversion for environment variables
+  * Handles default values and required flags
+
 #### ERP System (Microsoft Dynamics Business Central)
-* **Responsibility**: The target enterprise resource planning system. It receives the processed and structured JSON data, formatted as journal lines, from `process_japan_exports.py`. This data is then used to create general journal entries within the ERP.
+* **Responsibility**: The target enterprise resource planning system. It receives the processed and structured JSON data, formatted as journal lines, from `core/process_japan_exports.py`. This data is then used to create general journal entries within the ERP.
 
 ## Sequence Diagram for API Authentication and Posting
 
 ```mermaid
 sequenceDiagram
-    participant PJE as process_japan_exports.py
-    participant OTH as oauth_token_helper.py
-    participant ERA as exchange_rate_api.py
+    participant PJE as core/process_japan_exports.py
+    participant OTH as utils/oauth_token_helper.py
+    participant ERA as core/exchange_rate_api.py
+    participant CC as core/currency_converter.py
     participant ERP as Microsoft Dynamics BC
     
     PJE->>OTH: Request access token
@@ -134,14 +183,18 @@ sequenceDiagram
     
     loop For each JSON entry
         PJE->>PJE: Create debit journal line
-        PJE->>ERA: Get exchange rate (if needed)
-        ERA-->>PJE: Return exchange rate
+        PJE->>CC: Convert currency (if needed)
+        CC->>ERA: Get exchange rate
+        ERA-->>CC: Return exchange rate
+        CC-->>PJE: Return converted amount
         PJE->>ERP: POST journal line (debit)
         ERP-->>PJE: Return response
         
         PJE->>PJE: Create credit journal line
-        PJE->>ERA: Get exchange rate (if needed)
-        ERA-->>PJE: Return exchange rate
+        PJE->>CC: Convert currency (if needed)
+        CC->>ERA: Get exchange rate
+        ERA-->>CC: Return exchange rate
+        CC-->>PJE: Return converted amount
         PJE->>ERP: POST journal line (credit)
         ERP-->>PJE: Return response
         
@@ -156,33 +209,33 @@ This section provides a higher-level overview of the sequential data transformat
 ### Step 1: Original CSV File Input
 * The process starts with one or more CSV files. These files are typically exports from other financial systems and may have Japanese-specific character encodings (e.g., Shift-JIS, EUC-JP). They contain transactional data intended for import into the ERP.
 
-### Step 2: Character Set Normalization (via `charset_converter.py`)
+### Step 2: Character Set Normalization (via `core/charset_converter.py`)
 * **Purpose**: To standardize the character encoding to prevent data loss or corruption ("mojibake") and ensure compatibility with subsequent processing stages.
 * **Process**:
-  * `charset_converter.py` takes an input CSV file path and an output file path.
+  * `core/charset_converter.py` takes an input CSV file path and an output file path.
   * It uses the `chardet` library to detect the original encoding.
   * If confidence is low (<70%), it tries with more data or falls back to common encodings.
   * It then reads the file using the detected encoding and writes it out as a new CSV file encoded in UTF-8.
   * It validates the conversion by checking for replacement characters and other indicators of encoding issues.
 * **Output**: A UTF-8 encoded version of the original CSV file. This file serves as the input for the next stage.
 
-### Step 3: Conversion to Structured JSON (via `csv_to_json_converter.py`)
+### Step 3: Conversion to Structured JSON (via `core/csv_to_json_converter.py`)
 * **Purpose**: To transform the flat, tabular CSV data into a structured, hierarchical JSON format that accurately represents the financial transactions and incorporates necessary business logic and data cleaning.
 * **Process**:
-  * `csv_to_json_converter.py` takes the UTF-8 encoded CSV file as input.
+  * `core/csv_to_json_converter.py` takes the UTF-8 encoded CSV file as input.
   * It processes the specific two-line header structure of the CSV to correctly identify data columns.
   * It applies various data transformations, normalizations (e.g., currency codes, date formats), and specific business rules for account and department code processing.
   * It restructures the data from each CSV row into a defined JSON object structure, often creating distinct debit and credit objects within a parent JSON object.
   * It consolidates entries based on voucher_no and vendor_code to handle multiple debit entries with a single consolidated credit entry.
 * **Output**: An intermediate JSON file containing an array of structured objects, where each object represents the data extracted and transformed from the CSV, ready for ERP integration.
 
-### Step 4: ERP Integration - Posting Journal Lines (via `process_japan_exports.py`)
+### Step 4: ERP Integration - Posting Journal Lines (via `core/process_japan_exports.py`)
 * **Purpose**: To take the structured JSON data, authenticate with Microsoft Dynamics Business Central, and post the data as general journal entries.
 * **Process**:
-  * `process_japan_exports.py` takes the intermediate JSON file (generated in Step 3) as input.
+  * `core/process_japan_exports.py` takes the intermediate JSON file (generated in Step 3) as input.
   * It reads and parses this JSON file.
   * For each entry in the JSON:
-    * It uses `oauth_token_helper.py` to ensure a valid OAuth 2.0 access token is available for API communication.
+    * It uses `utils/oauth_token_helper.py` to ensure a valid OAuth 2.0 access token is available for API communication.
     * It transforms the JSON entry into two separate journal line payloads (one for debit, one for credit) according to the specific field requirements of the ERP API.
     * It verifies that debit and credit amounts balance within a specified tolerance.
     * It dynamically constructs the API endpoint URL based on data within the JSON entry (specifically, the company code derived from the department).
@@ -195,7 +248,7 @@ This section provides a higher-level overview of the sequential data transformat
 
 This section outlines the validation strategies implemented at each stage of the data processing pipeline to ensure data integrity and prevent errors.
 
-### Validation in `charset_converter.py`
+### Validation in `core/charset_converter.py`
 * **Encoding Detection Validation**:
   * Uses confidence scores from chardet to assess the reliability of encoding detection
   * If confidence is below 70%, attempts detection with more data or falls back to common encodings
@@ -206,7 +259,7 @@ This section outlines the validation strategies implemented at each stage of the
   * For Japanese encodings, verifies the presence of actual Japanese characters
   * Rejects conversions with more than 10% problematic characters unless forced
 
-### Validation in `csv_to_json_converter.py`
+### Validation in `core/csv_to_json_converter.py`
 * **CSV Structure Validation**:
   * Verifies the presence of the expected two-line header
   * Checks for minimum required columns
@@ -219,7 +272,7 @@ This section outlines the validation strategies implemented at each stage of the
   * When consolidating entries, verifies that all entries being consolidated have the same voucher_no and vendor_code
   * Ensures the consolidated amount correctly represents the sum of individual entries
 
-### Validation in `process_japan_exports.py`
+### Validation in `core/process_japan_exports.py`
 * **Balance Verification**:
   * Implements `verify_balanced_amounts` function to ensure debit and credit amounts balance
   * Applies a configurable tolerance (default 0.01) to account for rounding differences
@@ -233,7 +286,7 @@ This section outlines the validation strategies implemented at each stage of the
   * Truncates fields that exceed API limits (e.g., description to 50 characters, account_no to 100 characters)
   * Logs warnings when truncation occurs
 
-### Validation in `exchange_rate_api.py`
+### Validation in `core/exchange_rate_api.py`
 * **Exchange Rate Validation**:
   * Verifies that retrieved rates are positive numbers
   * Handles missing rates by raising appropriate exceptions
@@ -241,7 +294,7 @@ This section outlines the validation strategies implemented at each stage of the
 
 ## Rate Limiting Implementation
 
-The system implements a sophisticated rate limiting mechanism in `process_japan_exports.py` to prevent API throttling and ensure reliable operation.
+The system implements a sophisticated rate limiting mechanism in `core/process_japan_exports.py` to prevent API throttling and ensure reliable operation.
 
 ### RateLimiter Class
 * **Purpose**: Manages API call timing and implements exponential backoff for failed requests
@@ -271,7 +324,7 @@ This approach ensures the system respects API rate limits while maximizing throu
 
 ## Exchange Rate Handling
 
-The `exchange_rate_api.py` module provides comprehensive currency conversion capabilities, which are critical for accurate financial data processing.
+The `core/exchange_rate_api.py` module provides comprehensive currency conversion capabilities, which are critical for accurate financial data processing.
 
 ### Exchange Rate Retrieval
 * **Source**: Rates are retrieved from the Business Central API
@@ -284,7 +337,7 @@ The `exchange_rate_api.py` module provides comprehensive currency conversion cap
 
 ### Currency Code Handling
 * **Normalization**:
-  * Works with `company_currency_mapping.py` to normalize currency codes
+  * Works with `utils/company_currency_mapping.py` to normalize currency codes
   * Handles various formats (e.g., with or without "R-" prefix)
 * **Company-Specific Rules**:
   * Each company has a defined "home" currency
@@ -313,7 +366,7 @@ The `exchange_rate_api.py` module provides comprehensive currency conversion cap
 
 ## Consolidated Entries Logic
 
-The system implements a sophisticated mechanism for consolidating multiple entries, particularly in `csv_to_json_converter.py`.
+The system implements a sophisticated mechanism for consolidating multiple entries, particularly in `core/csv_to_json_converter.py`.
 
 ### Consolidation Criteria
 * Entries are consolidated based on:
@@ -335,7 +388,7 @@ The system implements a sophisticated mechanism for consolidating multiple entri
 * **Missing Vendor Code**: Entries without a vendor_code are processed individually
 
 ### Balance Verification for Consolidated Entries
-* The `verify_balanced_amounts` function in `process_japan_exports.py` handles both:
+* The `verify_balanced_amounts` function in `core/process_japan_exports.py` handles both:
   * Individual entries (debit and credit from same entry)
   * Consolidated groups (multiple debit entries with one consolidated credit)
 * A tolerance parameter (default: 0.01) accounts for rounding differences
@@ -354,8 +407,8 @@ This section details how system configurations, especially sensitive data, are m
 * **Security**: The `.env` file is listed in the `.gitignore` file to prevent it from being committed to the version control system (Git). This is crucial for protecting sensitive credentials from being exposed in the codebase.
 * An example file, `.env.example`, is included in the repository. This file lists all the necessary environment variables that the application expects, but with placeholder or empty values.
 
-### `env_config.py` for Loading Configuration
-* The `env_config.py` script is responsible for loading the environment variables from the `.env` file into the application's runtime environment.
+### `utils/env_config.py` for Loading Configuration
+* The `utils/env_config.py` script is responsible for loading the environment variables from the `.env` file into the application's runtime environment.
 * It provides the `get_env_var` function which supports:
   * Default values
   * Required flag to raise errors for missing critical variables
@@ -374,7 +427,7 @@ This section describes the mechanisms used to authenticate with the Microsoft Dy
 
 ### OAuth 2.0 Client Credentials Grant Flow
 * The system utilizes the OAuth 2.0 client credentials grant flow for server-to-server authentication with the Microsoft Dynamics Business Central API.
-* **Process (handled by `oauth_token_helper.py` and utilized by `process_japan_exports.py`):**
+* **Process (handled by `utils/oauth_token_helper.py` and utilized by `core/process_japan_exports.py`):**
   1. The application sends a POST request to the ERP's token endpoint (defined by `ERP_TOKEN_URL`).
   2. This request includes:
      * `grant_type`: Set to `client_credentials`.
@@ -383,11 +436,11 @@ This section describes the mechanisms used to authenticate with the Microsoft Dy
      * `scope`: The `ERP_SCOPE` defining the requested permissions.
   3. If the credentials are valid, the token endpoint returns a JSON response containing an `access_token` and its `expires_in` time.
 
-### Role of `oauth_token_helper.py`
-* The `oauth_token_helper.py` script encapsulates the token acquisition and management process.
+### Role of `utils/oauth_token_helper.py`
+* The `utils/oauth_token_helper.py` script encapsulates the token acquisition and management process.
 * **Token Acquisition**: It constructs and sends the token request as described above.
 * **Token Caching**: Upon receiving a new access token, the helper caches it along with its expiry time.
-* **Token Usage**: When `process_japan_exports.py` needs to make an API call, it requests a valid token.
+* **Token Usage**: When `core/process_japan_exports.py` needs to make an API call, it requests a valid token.
 * **Authorization Header**: The obtained access token is included in the `Authorization` header of API requests.
 
 ### SSL Certificate Verification
@@ -405,17 +458,17 @@ This section outlines the strategies for handling errors and logging activities 
 * **Fail Fast/Graceful Degradation**: For critical errors, scripts generally "fail fast" by logging the error and exiting. For non-critical errors affecting single records, the script may log the error and continue with the next record.
 
 ### Error Handling in Specific Scripts
-* **`charset_converter.py`**:
+* **`core/charset_converter.py`**:
   * Handles `FileNotFoundError` if the input CSV file does not exist.
   * Handles potential `chardet` errors or low-confidence detection, logging a warning.
   * Catches `IOError` or `OSError` during file operations.
 
-* **`csv_to_json_converter.py`**:
+* **`core/csv_to_json_converter.py`**:
   * Handles `FileNotFoundError` for the input UTF-8 CSV.
   * Catches `csv.Error` for malformed CSVs or unexpected header structures.
   * Handles `ValueError` or `KeyError` during data conversion/mapping for individual rows.
 
-* **`process_japan_exports.py`**:
+* **`core/process_japan_exports.py`**:
   * Implements retry logic for API calls with exponential backoff
   * Handles different HTTP status codes appropriately (4xx vs 5xx)
   * Generates detailed error reports for failed operations
@@ -423,8 +476,8 @@ This section outlines the strategies for handling errors and logging activities 
 ### Logging Mechanisms
 * **Console Output**: Provides immediate feedback, typically logging INFO level and above.
 * **File-based Logging**:
-  * **`erp_api_integration.log`**: For `process_japan_exports.py` and `oauth_token_helper.py` events.
-  * **`csv_conversion.log`**: For `charset_converter.py` and `csv_to_json_converter.py` events.
+  * **`erp_api_integration.log`**: For `core/process_japan_exports.py` and `utils/oauth_token_helper.py` events.
+  * **`csv_conversion.log`**: For `core/charset_converter.py` and `core/csv_to_json_converter.py` events.
 * **Log Format**: Includes timestamp, log level, script/logger name, function name, and the message.
 * **Log Levels**: Standard levels (DEBUG, INFO, WARNING, ERROR, CRITICAL) are used.
 
@@ -439,18 +492,18 @@ This section outlines procedures for recovering from common failure scenarios.
 4. **Data Issues**: For 400 errors, check the JSON data for format issues
 5. **Recovery Process**:
    * Fix the identified issue
-   * Re-run `process_japan_exports.py` with the same JSON file
+   * Re-run `core/process_japan_exports.py` with the same JSON file
    * The script will attempt to post all entries, including previously failed ones
 
 ### Encoding Detection Failures
 1. **Check Logs**: Review `csv_conversion.log` for encoding detection details
 2. **Manual Specification**: If automatic detection fails, specify encoding manually:
    ```
-   python charset_converter.py input.csv output_utf8.csv --encoding shift_jis
+   python -m core.charset_converter input.csv output_utf8.csv --encoding shift_jis
    ```
 3. **Force Conversion**: For problematic files, use the --force flag:
    ```
-   python charset_converter.py input.csv output_utf8.csv --encoding shift_jis --force
+   python -m core.charset_converter input.csv output_utf8.csv --encoding shift_jis --force
    ```
 
 ### CSV Parsing Errors
@@ -465,11 +518,11 @@ This section outlines procedures for recovering from common failure scenarios.
 1. **Review Report**: Check the generated `unbalanced_entries_report.md`
 2. **Tolerance Adjustment**: If differences are small, consider increasing balance_tolerance:
    ```
-   python process_japan_exports.py data.json --balance-tolerance 0.05
+   python -m core.process_japan_exports data.json --balance-tolerance 0.05
    ```
 3. **Skip Option**: To proceed despite unbalanced entries:
    ```
-   python process_japan_exports.py data.json --skip-unbalanced
+   python -m core.process_japan_exports data.json --skip-unbalanced
    ```
 
 ## Monitoring and Alerting
@@ -504,7 +557,7 @@ While not currently implemented, the following monitoring and alerting strategie
 
 This section provides an overview of the main Python scripts, their command-line usage, and expected inputs/outputs.
 
-### 1. `charset_converter.py`
+### 1. `core/charset_converter.py`
 * **Purpose**: Detects and converts the character encoding of input CSV files to UTF-8.
 * **Command-line Arguments**:
   * `input_file_path`: Path to the source CSV file.
@@ -514,10 +567,10 @@ This section provides an overview of the main Python scripts, their command-line
   * (Optional) `--japanese`: Optimize for Japanese text detection.
 * **Example Usage**:
   ```bash
-  python charset_converter.py "input/Evelyn Raku export.csv" "output/Evelyn Raku export_utf8.csv"
+  python -m core.charset_converter "input/Evelyn Raku export.csv" "output/Evelyn Raku export_utf8.csv"
   ```
 
-### 2. `csv_to_json_converter.py`
+### 2. `core/csv_to_json_converter.py`
 * **Purpose**: Converts a UTF-8 encoded CSV file into a structured JSON file.
 * **Command-line Arguments**:
   * `-i, --input`: Path to the input UTF-8 encoded CSV file.
@@ -527,10 +580,10 @@ This section provides an overview of the main Python scripts, their command-line
   * (Optional) `--line-break-replacement`: Character to replace line breaks with (default: space).
 * **Example Usage**:
   ```bash
-  python csv_to_json_converter.py -i "output/Evelyn Raku export_utf8.csv" -o "output/Evelyn Raku export.json"
+  python -m core.csv_to_json_converter -i "output/Evelyn Raku export_utf8.csv" -o "output/Evelyn Raku export.json"
   ```
 
-### 3. `process_japan_exports.py`
+### 3. `core/process_japan_exports.py`
 * **Purpose**: Reads the structured JSON data and posts it to Microsoft Dynamics Business Central.
 * **Command-line Arguments**:
   * `input_file`: Path to the input JSON file.
@@ -543,54 +596,19 @@ This section provides an overview of the main Python scripts, their command-line
   * (Optional) `--max-retries`: Maximum number of retry attempts for failed API calls.
 * **Example Usage**:
   ```bash
-  python process_japan_exports.py "output/Evelyn Raku export.json"
+  python -m core.process_japan_exports "output/Evelyn Raku export.json"
   ```
 
-## Business Requirements for Raw Data to API Payload Conversion
+### 4. `core/currency_converter.py`
+* **Purpose**: Provides currency conversion functionality using exchange rates.
+* **Usage**: This module is primarily used as a library by other scripts, particularly `process_japan_exports.py`.
+* **Key Functions**:
+  * `convert_amount(amount, from_currency, to_currency, company_code=None, decimal_precision=2)`: Converts an amount from one currency to another
+  * `convert_through_intermediate(amount, from_currency, intermediate_currency, to_currency, company_code=None, decimal_precision=2)`: Performs conversion through an intermediate currency
+  * `get_region_currency(region_code)`: Maps region codes to their respective currencies
 
-This section details the step-by-step business logic and data transformations applied from the initial raw CSV data to the final JSON payload sent to the ERP system's API.
-
-### 1. CSV Data Ingestion and Initial JSON Structuring (from `csv_to_json_converter.py`)
-
-#### 1.1. CSV Input and Encoding
-* **Expected Encoding**: The script expects the input CSV file to be UTF-8 encoded.
-
-#### 1.2. Header Processing
-* **Two-Line Header**: The script processes CSV files with a two-line header.
-  * The first line contains general headers.
-  * The second line contains more specific (often Japanese) headers.
-
-#### 1.3. Data Mapping and Transformation
-* **Pairing of Debit/Credit Rows**: The script processes each row to extract both debit and credit side information.
-* **Core CSV Column to JSON Field Mapping**:
-  * `voucher_no`: Mapped from "伝票No." (Voucher No.).
-  * `transaction_date`: Mapped from "仕訳日" (Journal Date).
-  * `debit.gl_account`: Mapped from "G/L Account" or "Vendor".
-  * `debit.account`: Mapped based on GL account type.
-  * `debit.amount`: Mapped from "換算前額" (Amount before conversion).
-  * `debit.currency`: Mapped from "単位" (Unit/Currency).
-  * `credit.gl_account`: Mapped from "G/L Account" or "Vendor".
-  * `credit.account`: Mapped based on GL account type.
-  * `credit.amount`: Mapped from "換算前額" (Amount before conversion).
-  * `credit.currency`: Mapped from "単位" (Unit/Currency).
-
-* **Currency Normalization**:
-  * "台湾ドル" is converted to "NTD".
-  * "円" is converted to "JPY".
-
-* **Description Truncation**:
-  * Descriptions are truncated to a maximum of 100 characters.
-
-#### 1.4. GL Account and Vendor Processing Logic
-* **For Vendor accounts**:
-  * `account`: Set to vendor_code
-  * `department_code`: Transformed to format "XXX.9999"
-
-* **For G/L Account accounts**:
-  * `account`: Determined by priority order of sub_account, main_account, payment_destination_code
-  * `department_code`: Uses original department code
-
-### 2. API Payload Generation (from `process_japan_exports.py`)
-
-#### 2.1. Journal Line Generation
-* For each entry
+### 5. `utils/env_config.py`
+* **Purpose**: Manages environment configuration and provides access to environment variables.
+* **Usage**: This module is primarily used as a library by other scripts.
+* **Key Functions**:
+  * `get_env_var(name, default=None, required=False, as_type=str)`: Retrieves environment variables with type conversion and validation

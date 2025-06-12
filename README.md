@@ -1,293 +1,175 @@
-# Power Importer - ERP Integration System
+# Power Importer
 
-This repository contains a system for processing CSV files from Japanese sources, converting them to structured JSON, and integrating with Microsoft Dynamics Business Central ERP.
+A tool for importing and processing financial data from various sources into Business Central.
 
-## System Overview
+## Overview
 
-The Power Importer system processes financial data through the following pipeline:
+Power Importer is a Python-based tool designed to streamline the process of importing financial data from various sources into Microsoft Dynamics 365 Business Central. It handles character encoding conversion, CSV to JSON transformation, currency conversion, and API integration with Business Central.
 
-1. **Character Set Conversion**: Converts CSV files from various encodings (e.g., Shift-JIS) to UTF-8
-2. **CSV to JSON Transformation**: Converts UTF-8 CSV files to structured JSON format
-3. **ERP Integration**: Posts the JSON data to Microsoft Dynamics Business Central as journal entries
+## Key Features
 
-### High-Level Data Flow
+- **Character Encoding Conversion**: Convert files between different character encodings, particularly useful for handling Japanese text.
+- **CSV to JSON Transformation**: Convert CSV files to JSON format for API consumption.
+- **Currency Conversion**: Handle currency conversion between different currencies using exchange rate APIs.
+- **Business Central API Integration**: Post journal entries to Business Central via its API.
+- **Error Handling**: Robust error handling and reporting for failed operations.
+- **Logging**: Comprehensive logging for debugging and auditing.
+
+## Project Structure
 
 ```
-Incoming CSV Files --> [charset_converter.py] --UTF-8 CSV--> [csv_to_json_converter.py] --Structured JSON--> [process_japan_exports.py] --Authenticated API Calls--> [ERP System (Microsoft Dynamics BC)]
-                                                                                                                                        ^
-                                                                                                                                        |
-                                                                                                                              [oauth_token_helper.py] --OAuth Token-->
+Power-importer/
+├── core/                      # Core functionality scripts
+│   ├── api/                   # API client modules
+│   ├── converters/            # Data conversion modules
+│   ├── currency/              # Currency-related modules
+│   ├── charset_converter.py   # Converts files between different character encodings
+│   ├── csv_to_json_converter.py # Converts CSV files to JSON format
+│   ├── currency_converter.py  # Handles currency conversion
+│   ├── exchange_rate_api.py   # API client for exchange rate services
+│   ├── exchange_rate_query.py # Queries exchange rates
+│   └── process_japan_exports.py # Processes export data from Japan
+│
+├── utils/                     # Utility functions
+│   ├── company_currency_mapping.py # Maps companies to their currencies
+│   ├── config.py              # Centralized configuration settings
+│   ├── env_config.py          # Environment configuration handling
+│   ├── oauth_token_helper.py  # OAuth token management
+│   └── update_imports.py      # Script to update import statements
+│
+├── docs/                      # Documentation
+│   ├── deployment_guide.md    # Guide for deploying the system
+│   ├── migration_guide.md     # Guide for migrating to the new structure
+│   └── project_structure.md   # Overview of the project structure
+│
+├── examples/                  # Example data and files
+│
+├── Temp/                      # Temporary files and test code
+│   ├── data/                  # Data files
+│   ├── tests/                 # Test scripts
+│   └── rate_table/            # Rate table files (POC)
+│
+├── .env.example               # Example environment variables
+├── .gitignore                 # Git ignore file
+├── migrate.bat                # Windows migration script
+├── migrate.sh                 # Linux/macOS migration script
+├── README.md                  # Project README
+├── requirements.txt           # Python dependencies
+├── run_importer.py            # Main entry point
+└── setup.py                   # Package setup script
 ```
 
-## Setup Instructions
+For more details, see [docs/project_structure.md](docs/project_structure.md).
 
-### Python Environment Setup
+## Installation
 
-1. **Create a virtual environment**:
+### Prerequisites
+
+- Python 3.8 or higher
+- Git
+- Access to Business Central API
+- Exchange Rate API key (if using currency conversion)
+
+### Setup
+
+1. Clone the repository:
    ```bash
-   # Create a virtual environment
-   python -m venv venv
-   
-   # Activate the virtual environment
-   # On Windows:
-   venv\Scripts\activate
-   # On macOS/Linux:
-   source venv/bin/activate
+   git clone https://github.com/your-organization/power-importer.git
+   cd power-importer
    ```
 
-2. **Install required packages**:
+2. Create a virtual environment:
+   ```bash
+   # On Linux/macOS
+   python -m venv venv
+   source venv/bin/activate
+
+   # On Windows
+   python -m venv venv
+   venv\Scripts\activate
+   ```
+
+3. Install dependencies:
    ```bash
    pip install -r requirements.txt
    ```
 
-3. **Configure environment variables**:
+4. Install the package in development mode:
    ```bash
-   # Copy the example environment file
-   cp .env.example .env
-   
-   # Edit the .env file with your actual values
-   # Required variables:
-   # - ERP_CLIENT_ID: Azure AD client ID
-   # - ERP_CLIENT_SECRET: Azure AD client secret
-   # - ERP_TOKEN_URL: OAuth token endpoint URL
-   # - ERP_API_URL: Business Central API base URL
-   # - ERP_SCOPE: API scope (usually https://api.businesscentral.dynamics.com/.default)
+   pip install -e .
    ```
 
-## Key Components
-
-### 1. charset_converter.py
-
-Converts files from non-UTF-8 encodings (like Shift-JIS or other Japanese encodings) to UTF-8 format.
-
-#### Usage
-
-```bash
-python charset_converter.py input_file [output_file] [--encoding encoding] [--force] [--japanese]
-```
-
-#### Arguments
-
-- `input_file`: Path to the file you want to convert
-- `output_file` (optional): Path where the converted file will be saved
-- `--encoding`: Manually specify the source encoding
-- `--force`: Force conversion even if validation fails
-- `--japanese`: Optimize for Japanese text detection
-
-#### Example
-
-```bash
-python charset_converter.py "Raku export.csv" "Raku export-utf8.csv"
-```
-
-### 2. csv_to_json_converter.py
-
-Converts UTF-8 encoded CSV files to a structured JSON format, handling two-line headers, debit/credit pairs, and applying business rules.
-
-#### Usage
-
-```bash
-python csv_to_json_converter.py -i INPUT_FILE -o OUTPUT_FILE [--max-desc-length LENGTH] [--no-fix-line-breaks] [--line-break-replacement CHAR]
-```
-
-#### Arguments
-
-- `-i, --input`: Input CSV file path
-- `-o, --output`: Output JSON file path
-- `--max-desc-length`: Maximum length for description field (default: 100)
-- `--no-fix-line-breaks`: Disable fixing line breaks in CSV fields
-- `--line-break-replacement`: Character to replace line breaks with (default: space)
-
-#### Example
-
-```bash
-python csv_to_json_converter.py -i "Raku export-utf8.csv" -o "Raku export.json"
-```
-
-### 3. process_japan_exports.py
-
-Processes structured JSON data and posts it to Microsoft Dynamics Business Central as journal entries.
-
-#### Usage
-
-```bash
-python process_japan_exports.py INPUT_JSON_FILE [--report REPORT_FILE] [--unbalanced-report REPORT_FILE] [--balance-tolerance TOLERANCE] [--skip-unbalanced] [--dry-run]
-```
-
-#### Arguments
-
-- `input_file`: Path to the input JSON file
-- `--report`: Generate currency modification report to specified file path
-- `--unbalanced-report`: Generate unbalanced entries report to specified file path
-- `--balance-tolerance`: Acceptable difference between debit and credit amounts
-- `--skip-unbalanced`: Skip unbalanced entries instead of posting them
-- `--dry-run`: Generate report only without posting to API
-
-#### Example
-
-```bash
-python process_japan_exports.py "Raku export.json"
-```
-
-### 4. oauth_token_helper.py
-
-Handles OAuth 2.0 authentication with Microsoft Azure AD for accessing the Business Central API.
-
-### 5. exchange_rate_api.py
-
-Manages currency exchange rate calculations and retrieval from the Business Central API.
-
-## Complete Workflow Example
-
-```bash
-# 1. Convert CSV from original encoding to UTF-8
-python charset_converter.py "Raku export.csv" "Raku export-utf8.csv"
-
-# 2. Convert UTF-8 CSV to structured JSON
-python csv_to_json_converter.py -i "Raku export-utf8.csv" -o "Raku export.json"
-
-# 3. Process JSON and post to ERP
-python process_japan_exports.py "Raku export.json"
-```
-
-## Security Best Practices
-
-This project follows security best practices for handling sensitive data:
-
-- **No hard-coded secrets**: Sensitive data like API keys, passwords, or credentials are never hard-coded in the source code.
-- **Environment variables**: All sensitive configuration is loaded from environment variables.
-- **Dotenv support**: For local development, you can use a `.env` file (which is not committed to version control).
-
-### Using Environment Variables
-
-1. Copy the `.env.example` file to create your own `.env` file:
+5. Create a `.env` file:
    ```bash
    cp .env.example .env
    ```
 
-2. Edit the `.env` file to add your sensitive data:
-   ```
-   ERP_CLIENT_ID=your_client_id
-   ERP_CLIENT_SECRET=your_client_secret
-   ERP_TOKEN_URL=https://login.microsoftonline.com/your_tenant_id/oauth2/v2.0/token
-   ERP_API_URL=https://api.businesscentral.dynamics.com/v2.0/your_tenant_id/your_environment/api/v2.0
-   ERP_SCOPE=https://api.businesscentral.dynamics.com/.default
-   ```
+6. Edit the `.env` file with your configuration.
 
-3. In your code, use the `env_config.py` utility to access these values:
-   ```python
-   from env_config import get_env_var
-   
-   # Get a required value (raises error if not set)
-   client_id = get_env_var("ERP_CLIENT_ID", required=True)
-   
-   # Get a value with a default
-   api_url = get_env_var("ERP_API_URL", default="https://api.businesscentral.dynamics.com")
-   ```
+For detailed installation instructions, see [docs/deployment_guide.md](docs/deployment_guide.md).
 
-## Error Handling and Recovery
+## Usage
 
-### Common Error Scenarios
+### Basic Usage
 
-1. **Encoding Detection Failures**:
-   ```bash
-   # Manually specify encoding
-   python charset_converter.py input.csv output_utf8.csv --encoding shift_jis
-   
-   # Force conversion despite validation issues
-   python charset_converter.py input.csv output_utf8.csv --encoding shift_jis --force
-   ```
+```bash
+# Show help
+python run_importer.py --help
 
-2. **CSV Parsing Errors**:
-   - Ensure the CSV has the expected two-line header
-   - Check for line break issues in fields
-   - Manually inspect the CSV in a text editor
+# Basic usage
+python run_importer.py "input.csv"
 
-3. **Unbalanced Entries**:
-   ```bash
-   # Adjust tolerance for small differences
-   python process_japan_exports.py data.json --balance-tolerance 0.05
-   
-   # Skip unbalanced entries
-   python process_japan_exports.py data.json --skip-unbalanced
-   ```
+# Specify output JSON file
+python run_importer.py "input.csv" --output-json "output.json"
 
-4. **API Authentication Issues**:
-   - Verify ERP_CLIENT_ID and ERP_CLIENT_SECRET in .env
-   - Check that the token URL is correct
-   - Ensure the application has proper permissions in Azure AD
+# Skip importing to ERP
+python run_importer.py "input.csv" --skip-import
 
-## Output Format
-
-The JSON output from the csv_to_json_converter.py script is an array of journal entries, where each entry contains:
-
-- Common fields (voucher number, dates, description, etc.)
-- Debit information (account, amount, department, etc.)
-- Credit information (account, amount, department, etc.)
-
-Example:
-```json
-[
-  {
-    "voucher_no": "VPA-0000065",
-    "transaction_date": "2025/03/10",
-    "application_date": "2025/03/10",
-    "journal_generation_date": "2025/03/20",
-    "description": "VPA-0000065   飲食費(社内会議等)・10% Lunch Meeting with HR and RD Managers",
-    "note": "",
-    "receipt_invoice": "",
-    "debit": {
-      "marker": "",
-      "gl_account_type": "G/L Account",
-      "account": "73300-14",
-      "main_account_code": "73300",
-      "sub_account_code": "73300-14",
-      "account_name": "飲食費(社内会議等)・10%",
-      "amount": 785.0,
-      "currency": "NTD",
-      "department": "VCT.1692G",
-      "applicant_code": "10017",
-      "vendor_code": "",
-      "description": "Lunch Meeting with HR and RD Managers",
-      "department_code": "VCT.1692"
-    },
-    "credit": {
-      "marker": "",
-      "gl_account_type": "Vendor",
-      "account": "32200-10",
-      "main_account_code": "32200",
-      "sub_account_code": "32200-10",
-      "account_name": "未払金",
-      "amount": 785.0,
-      "currency": "NTD",
-      "department": "VCT.1692G",
-      "applicant_code": "10017",
-      "vendor_code": "V0001",
-      "description": "",
-      "department_code": "VCT.9999"
-    }
-  }
-]
+# Dry run (generate report only without posting to API)
+python run_importer.py "input.csv" --dry-run
 ```
 
-## For More Information
+### Using as a Package
 
-For detailed technical documentation, refer to the `Design Document TOI.md` file in this repository, which provides comprehensive information about:
+If you've installed the Power Importer as a package, you can use the `power-importer` command:
 
-- System architecture and component interactions
-- Data validation strategies
-- Rate limiting implementation
-- Exchange rate handling
-- Consolidated entries logic
-- Authentication and authorization
-- Error handling and logging
-- Monitoring recommendations
+```bash
+# Show help
+power-importer --help
 
-## Requirements
+# Basic usage
+power-importer "input.csv"
+```
 
-- Python 3.8+
-- Required packages (see requirements.txt):
-  - chardet
-  - python-dotenv
-  - requests
-  - pandas (optional, for some utilities)
+For more usage options, see [docs/deployment_guide.md](docs/deployment_guide.md).
+
+## Migration from Old Structure
+
+If you're migrating from the old project structure, use the migration scripts:
+
+```bash
+# On Linux/macOS
+./migrate.sh
+
+# On Windows
+migrate.bat
+```
+
+For detailed migration instructions, see [docs/migration_guide.md](docs/migration_guide.md).
+
+## Documentation
+
+- [Project Structure](docs/project_structure.md)
+- [Deployment Guide](docs/deployment_guide.md)
+- [Migration Guide](docs/migration_guide.md)
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Submit a pull request
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.

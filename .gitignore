@@ -1,8 +1,3 @@
-# Environment variables - contains sensitive data
-.env
-.env.*
-!.env.example
-
 # Python
 __pycache__/
 *.py[cod]
@@ -25,26 +20,51 @@ wheels/
 .installed.cfg
 *.egg
 
-# Virtual environments
-venv/
+# Environment
+.env
+.venv
 env/
+venv/
 ENV/
-charset_converter_env/
+env.bak/
+venv.bak/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
 
 # Logs
 *.log
+logs/
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*~.nib
+*.DS_Store
+
+# Project specific
 erp_api_integration.log
+oauth_token_*.log
+currency_rounding_test_results.json
+test_output.json
+test_output.txt
+debug_output.txt
+auth_test_output.txt
+mock_test_output.txt
+rounding_test_output.txt
+analysis_output.txt
+currency_analysis_output.txt
+oba_analysis_output.txt
+client_secret_debug.txt
+fixed_output.json
 
-# OS specific files
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
-
-#Provate Data
-VicOneERPAPI/
-Data/
-Tools/ 
+# Keep Temp directory but ignore its contents except for .gitkeep
+Temp/*
+!Temp/tests/
+Temp/tests/*
+!Temp/tests/.gitkeep

@@ -1,0 +1,76 @@
+[
+  {
+    "voucher_no": "APA-0000298",
+    "transaction_date": "3/17/2025",
+    "application_date": "3/19/2025",
+    "journal_generation_date": "4/23/2025",
+    "description": "APA-0000298 VicOne Corporate Credit Card Software Purchase & Maintenance VicOne HRM - BambooHR month",
+    "note": "",
+    "receipt_invoice": "",
+    "debit": {
+      "marker": "",
+      "gl_account": "G/L Account",
+      "account": "76900-10",
+      "sub_account": "",
+      "amount": 27911.1356,
+      "currency": "NTD",
+      "department": "VCT.1751G",
+      "applicant_code": "Z00006",
+      "vendor_code": "V-VC00048",
+      "free_field": "VicOne HRM - BambooHR monthly subscription fee 03/17/2025-04/16/2025",
+      "department_code": "VCT.1751G",
+      "original_currency": "R-USD",
+      "original_amount": 863.32
+    },
+    "credit": {
+      "marker": "",
+      "gl_account": "Vendor",
+      "account": "V-VC00048",
+      "sub_account": "31200-10",
+      "amount": 863.32,
+      "currency": "R-USD",
+      "department": "VCT.1751G",
+      "applicant_code": "Z00006",
+      "vendor_code": "V-VC00048",
+      "free_field": "VicOne HRM - BambooHR monthly subscription fee 03/17/2025-04/16/2025",
+      "department_code": "VCT.9999"
+    }
+  },
+  {
+    "voucher_no": "APA-0000298",
+    "transaction_date": "3/17/2025",
+    "application_date": "3/19/2025",
+    "journal_generation_date": "4/23/2025",
+    "description": "APA-0000298 VicOne Corporate Credit Card Software Purchase & Maintenance VicOne HRM - BambooHR month",
+    "note": "",
+    "receipt_invoice": "",
+    "debit": {
+      "marker": "",
+      "gl_account": "",
+      "account": "",
+      "sub_account": "",
+      "amount": 0,
+      "currency": "",
+      "department": "",
+      "applicant_code": "",
+      "vendor_code": "",
+      "free_field": "",
+      "department_code": ""
+    },
+    "credit": {
+      "marker": "",
+      "gl_account": "Vendor",
+      "account": "V-VC00048",
+      "sub_account": "31200-10",
+      "amount": 27911.1356,
+      "currency": "NTD",
+      "department": "VCT.1751G",
+      "applicant_code": "Z00006",
+      "vendor_code": "V-VC00048",
+      "free_field": "VicOne HRM - BambooHR monthly subscription fee 03/17/2025-04/16/2025",
+      "department_code": "VCT.9999",
+      "consolidated": true,
+      "original_entries_count": 1
+    }
+  }
+]

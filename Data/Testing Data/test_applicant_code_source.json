@@ -1,0 +1,40 @@
+[
+  {
+    "voucher_no": "VPA-TEST002",
+    "transaction_date": "2025/03/05",
+    "application_date": "2025/03/27",
+    "journal_generation_date": "2025/05/23",
+    "description": "Test vendor payment with applicant_code source",
+    "note": "",
+    "receipt_invoice": "",
+    "External_Document_No": "2025/03/05",
+    "Document_Date": "2025/03/05",
+    "debit": {
+      "marker": "",
+      "gl_account": "G/L Account",
+      "account": "72600-30",
+      "sub_account": "72600-30",
+      "amount": 1000.0,
+      "currency": "NTD",
+      "department": "VCT.1692G",
+      "applicant_code": "10005",
+      "vendor_code": "",
+      "free_field": "Test debit line",
+      "department_code": "VCT.5312G"
+    },
+    "credit": {
+      "marker": "",
+      "gl_account": "Vendor",
+      "account": "10005",
+      "sub_account": "32200-10",
+      "amount": 1000.0,
+      "currency": "NTD",
+      "department": "VCT.1692G",
+      "applicant_code": "10005",
+      "vendor_code": "10005",
+      "free_field": "Test credit line",
+      "department_code": "VCT.9999",
+      "account_source": "applicant_code"
+    }
+  }
+]

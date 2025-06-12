@@ -1,0 +1,14 @@
+﻿勘定奉行：伝票区切,G/L Account,仕訳日,申請日,仕訳データ生成日,伝票No.,借方：勘定科目：会計連携項目,借方：補助科目：会計連携項目,,,換算前額,単位,借方：負担部門：会計連携項目,申請者CD/支払先CD,支払先CD,摘要,フリー２(明細),Receipt/Invoice Note(明細),Receipt/Invoice No.(明細),借方：負担部門コード
+,Vendor,仕訳日,申請日,仕訳データ生成日,伝票No.,,,貸方：勘定科目：会計連携項目,貸方：補助科目：会計連携項目,換算前額,単位,借方：負担部門：会計連携項目,申請者CD/支払先CD,支払先CD,摘要,フリー２(明細),Receipt/Invoice Note(明細),Receipt/Invoice No.(明細),借方：負担部門コード
+,G/L Account,3/10/2014,3/25/2025,4/22/2025,VPA-0000087,72700-10,,,,904,台湾ドル,VCT.1342G,10055,,"VPA-0000087   Telephone, Mobile Phone Call March Internet fee",March Internet fee,,,VCT.1342G
+,Vendor,3/10/2014,3/25/2025,4/22/2025,VPA-0000087,,,32200-10,32200-10,904,台湾ドル,VCT.1342G,10055,,"VPA-0000087   Telephone, Mobile Phone Call March Internet fee",March Internet fee,,,VCT.1342G
+,G/L Account,3/5/2025,3/25/2025,4/22/2025,VPA-0000087,,72600-30,,,265,台湾ドル,VCT.1342G,10055,,"VPA-0000087   Domestic Travel - Local Taxi, Petrol Claim, Toll, Parking taxi to msi",taxi to msi,,,VCT.1342G
+,Vendor,3/5/2025,3/25/2025,4/22/2025,VPA-0000087,,,32200-10,32200-10,265,台湾ドル,VCT.1342G,10055,,"VPA-0000087   Domestic Travel - Local Taxi, Petrol Claim, Toll, Parking taxi to msi",taxi to msi,,,VCT.1342G
+,G/L Account,3/18/2025,3/25/2025,4/22/2025,VPA-0000087,,72600-30,,,715,台湾ドル,VCT.1342G,10055,,"VPA-0000087   Domestic Travel - Local Taxi, Petrol Claim, Toll, Parking taxi to FXN",taxi to FXN,,,VCT.1342G
+,Vendor,3/18/2025,3/25/2025,4/22/2025,VPA-0000087,,,32200-10,32200-10,715,台湾ドル,VCT.1342G,10055,,"VPA-0000087   Domestic Travel - Local Taxi, Petrol Claim, Toll, Parking taxi to FXN",taxi to FXN,,,VCT.1342G
+,G/L Account,3/19/2025,3/25/2025,4/22/2025,VPA-0000087,,72600-30,,,1825,台湾ドル,VCT.1342G,10055,,"VPA-0000087   Domestic Travel - Local Taxi, Petrol Claim, Toll, Parking Taxi to TTE/FXN",Taxi to TTE/FXN,,,VCT.1342G
+,Vendor,3/19/2025,3/25/2025,4/22/2025,VPA-0000087,,,32200-10,32200-10,1825,台湾ドル,VCT.1342G,10055,,"VPA-0000087   Domestic Travel - Local Taxi, Petrol Claim, Toll, Parking Taxi to TTE/FXN",Taxi to TTE/FXN,,,VCT.1342G
+,G/L Account,3/19/2025,3/25/2025,4/22/2025,VPA-0000087,,72600-30,,,130,台湾ドル,VCT.1342G,10055,,"VPA-0000087   Domestic Travel - Local Airfare, Train, High Speed Rail high speed train to TTE",high speed train to TTE,,,VCT.1342G
+,Vendor,3/19/2025,3/25/2025,4/22/2025,VPA-0000087,,,32200-10,32200-10,130,台湾ドル,VCT.1342G,10055,,"VPA-0000087   Domestic Travel - Local Airfare, Train, High Speed Rail high speed train to TTE",high speed train to TTE,,,VCT.1342G
+,G/L Account,3/20/2025,3/25/2025,4/22/2025,VPA-0000087,,72600-30,,,335,台湾ドル,VCT.1342G,10055,,"VPA-0000087   Domestic Travel - Local Taxi, Petrol Claim, Toll, Parking Taxi for Chosen",Taxi for Chosen,,,VCT.1342G
+,Vendor,3/20/2025,3/25/2025,4/22/2025,VPA-0000087,,,32200-10,32200-10,335,台湾ドル,VCT.1342G,10055,,"VPA-0000087   Domestic Travel - Local Taxi, Petrol Claim, Toll, Parking Taxi for Chosen",Taxi for Chosen,,,VCT.1342G

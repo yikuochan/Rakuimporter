@@ -1,0 +1,6 @@
+Reading input file: Test Raku export-all-noNTD.json
+Found 129 entries in the input file.
+Modified 186 currency values.
+Modified data saved to Test Raku export-all-noNTD-modified.json
+Output file 'Test Raku export-all-noNTD-modified.json' successfully created.
+File size: 133389 bytes
