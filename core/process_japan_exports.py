@@ -570,16 +570,19 @@ def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any
         intercompany_code = department[:3] if department else ""
         logger.info(f"Setting intercompany code to {intercompany_code} for debit line with account 18600-10 - Voucher: {entry.get('voucher_no', 'Unknown')}")
 
-    # For credit lines, set intercompany code to "VCT" if cost center is not VCT
+    # For credit lines, check if vendor code is V-VC00048 or if cost center is not VCT
     elif entry_type == "credit":
+        # Get vendor code
+        vendor_code = entry_data.get("vendor_code", "")
+        
         # Extract cost center from department code (first 3 characters)
         department = entry_data.get("department", "")
         cost_center = department[:3] if department else ""
         
-        # If cost center is not VCT, set intercompany code to "VCT"
-        if cost_center and cost_center != "VCT":
+        # If vendor code is V-VC00048 or cost center is not VCT, set intercompany code to "VCT"
+        if vendor_code == "V-VC00048" or (cost_center and cost_center != "VCT"):
             intercompany_code = "VCT"
-            logger.info(f"Setting intercompany code to VCT for credit line with cost center {cost_center} - Voucher: {entry.get('voucher_no', 'Unknown')}")
+            logger.info(f"Setting intercompany code to VCT for credit line - Vendor: {vendor_code}, Cost center: {cost_center} - Voucher: {entry.get('voucher_no', 'Unknown')}")
 
     # Create the journal line payload
     journal_line = {
