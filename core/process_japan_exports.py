@@ -1182,6 +1182,11 @@ def process_entries(entries: List[Dict[str, Any]], access_token: str, balance_to
     unbalanced_count = 0
     unbalanced_entries = []
     
+    # Create a dictionary to track used document numbers for debit lines in consolidated entries
+    # This ensures document numbers are unique across consolidated entries
+    used_doc_numbers = {}
+    logger.info("Initialized used_doc_numbers dictionary for tracking document number duplicates in consolidated entries")
+    
     # Group entries by voucher number and vendor code
     entry_groups = {}
     # Track entries that are already consolidated in the input data
@@ -1419,7 +1424,28 @@ def process_entries(entries: List[Dict[str, Any]], access_token: str, balance_to
                     debit_line = create_journal_line(entry, "debit")
                     # Ensure Document_No matches the entry's voucher_no
                     entry_voucher_no = entry.get('voucher_no', voucher_no)
-                    debit_line["Document_No"] = entry_voucher_no
+                    
+                    # Check if this document number has been used before for debit lines
+                    # and append a suffix if needed
+                    original_doc_no = entry_voucher_no
+                    if i > 0:  # First entry uses original document number
+                        if original_doc_no in used_doc_numbers:
+                            # Increment the count for this document number
+                            used_doc_numbers[original_doc_no] += 1
+                            # Append the suffix to the document number
+                            modified_doc_no = f"{original_doc_no}-{used_doc_numbers[original_doc_no]}"
+                            logger.info(f"Document number {original_doc_no} has been used before for debit line. Using {modified_doc_no} instead.")
+                            debit_line["Document_No"] = modified_doc_no
+                        else:
+                            # First time seeing this document number
+                            used_doc_numbers[original_doc_no] = 0
+                            debit_line["Document_No"] = original_doc_no
+                    else:
+                        # First entry uses original document number
+                        if original_doc_no not in used_doc_numbers:
+                            used_doc_numbers[original_doc_no] = 0
+                        debit_line["Document_No"] = original_doc_no
+                    
                     # Use the original External_Document_No without modification
                     logger.info(f"Posting debit line {i+1}/{len(valid_entries)} for voucher {entry_voucher_no} with Document_No: {debit_line['Document_No']}")
                     # Create a deep copy of the debit line to prevent any reference issues
