@@ -56,35 +56,54 @@ except ImportError:
             return default
         return value
 
+# Global variable to track if logging has been initialized
+_logging_initialized = False
+
 def setup_logging():
-    """Set up logging with both file and console handlers."""
-    # Remove any existing handlers
-    for handler in logging.root.handlers[:]:
-        logging.root.removeHandler(handler)
+    """Set up logging with both file and console handlers using a singleton pattern."""
+    global _logging_initialized
     
     # Create logger
     logger = logging.getLogger("erp_api_integration")
-    logger.setLevel(logging.INFO)
-    logger.handlers = []  # Remove any existing handlers
     
-    # Create handlers
-    try:
-        file_handler = logging.FileHandler("erp_api_integration.log")
-        # Create formatter
+    # Only set up logging once
+    if not _logging_initialized:
+        # Remove any existing handlers from the logger
+        for handler in logger.handlers[:]:
+            logger.removeHandler(handler)
+        
+        # Also remove handlers from the root logger
+        for handler in logging.root.handlers[:]:
+            logging.root.removeHandler(handler)
+        
+        # Set log level
+        logger.setLevel(logging.INFO)
+        
+        # Disable propagation to parent loggers to prevent duplicate logs
+        logger.propagate = False
+        
+        # Create handlers
+        try:
+            file_handler = logging.FileHandler("erp_api_integration.log")
+            # Create formatter
+            formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            file_handler.setFormatter(formatter)
+            # Add file handler to logger
+            logger.addHandler(file_handler)
+            print("File logging handler initialized successfully")
+        except Exception as e:
+            print(f"Error setting up log file: {str(e)}")
+            print("Falling back to console-only logging")
+        
+        # Always add console handler
+        console_handler = logging.StreamHandler(sys.stdout)
         formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        file_handler.setFormatter(formatter)
-        # Add file handler to logger
-        logger.addHandler(file_handler)
-        logger.info("File logging handler initialized successfully")
-    except Exception as e:
-        print(f"Error setting up log file: {str(e)}")
-        print("Falling back to console-only logging")
-    
-    # Always add console handler
-    console_handler = logging.StreamHandler(sys.stdout)
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    console_handler.setFormatter(formatter)
-    logger.addHandler(console_handler)
+        console_handler.setFormatter(formatter)
+        logger.addHandler(console_handler)
+        
+        # Mark logging as initialized
+        _logging_initialized = True
+        print("Logging initialized successfully")
     
     return logger
 
@@ -995,7 +1014,8 @@ def generate_currency_modification_report(entries: List[Dict[str, Any]], output_
     return modifications
 
 
-def create_vct_responsibility_entries(entry: Dict[str, Any], access_token: str, rate_limiter: RateLimiter, max_retries: int = 3) -> Tuple[int, int]:
+def create_vct_responsibility_entries(entry: Dict[str, Any], access_token: str, rate_limiter: RateLimiter, 
+                                     used_doc_numbers: Dict[str, int] = None, max_retries: int = 3) -> Tuple[int, int]:
     """
     Create additional debit and credit lines in VCT to record the responsibility of expense for V-VC00048 vendor.
     
@@ -1003,11 +1023,15 @@ def create_vct_responsibility_entries(entry: Dict[str, Any], access_token: str, 
         entry: The original journal entry
         access_token: OAuth2 access token
         rate_limiter: RateLimiter instance for managing API call timing
+        used_doc_numbers: Dictionary to track used document numbers and their counters
         max_retries: Maximum number of retry attempts for failed API calls
     
     Returns:
         Tuple[int, int]: Count of successful and failed entries
     """
+    # Initialize used_doc_numbers if not provided
+    if used_doc_numbers is None:
+        used_doc_numbers = {}
     success_count = 0
     failure_count = 0
     
@@ -1062,13 +1086,29 @@ def create_vct_responsibility_entries(entry: Dict[str, Any], access_token: str, 
     # Extract cost center from original department (first 3 characters)
     original_cost_center = original_department[:3] if original_department else ""
     
+    # Check if this document number has been used before and append a suffix if needed
+    original_doc_no = voucher_no
+    
+    # Log the document number being processed
+    logger.info(f"Processing document number for VCT responsibility entry: {original_doc_no}")
+    
+    # Always check if this document number is in the tracking dictionary
+    if original_doc_no not in used_doc_numbers:
+        used_doc_numbers[original_doc_no] = 0
+        logger.info(f"Initializing counter for document number {original_doc_no}")
+    
+    # Always increment for VCT responsibility entries
+    used_doc_numbers[original_doc_no] += 1
+    modified_doc_no = f"{original_doc_no}-{used_doc_numbers[original_doc_no]}"
+    logger.info(f"Using modified document number {modified_doc_no} for VCT responsibility entry")
+    
     # Create the debit line for VCT
     debit_line = {
         "Journal_Template_Name": JOURNAL_TEMPLATE_NAME,
         "Journal_Batch_Name": JOURNAL_BATCH_NAME,
         "Document_Type": DOCUMENT_TYPE,
         "External_Document_No": external_document_no,
-        "Document_No": voucher_no,
+        "Document_No": modified_doc_no,
         "Document_Date": convert_date_format(document_date),
         "Account_Type": "G/L Account",
         "Account_No": "18600-10",  # Fixed account number
@@ -1100,7 +1140,7 @@ def create_vct_responsibility_entries(entry: Dict[str, Any], access_token: str, 
         "Journal_Batch_Name": JOURNAL_BATCH_NAME,
         "Document_Type": DOCUMENT_TYPE,
         "External_Document_No": external_document_no,
-        "Document_No": voucher_no,
+        "Document_No": modified_doc_no,
         "Document_Date": convert_date_format(document_date),
         "Account_Type": "Vendor",
         "Account_No": "V-VC00048",  # Fixed vendor code
@@ -1334,8 +1374,11 @@ def process_entries(entries: List[Dict[str, Any]], access_token: str, balance_to
                     cost_center = department[:3] if department else ''
                     
                     if original_vendor_code == "V-VC00048" and cost_center and cost_center != "VCT":
+                        logger.info(f"Creating VCT responsibility entries for consolidated mapped vendor V-VC00048 - Voucher: {entry_voucher_no}")
+                        vct_success, vct_failure = create_vct_responsibility_entries(entry, access_token, rate_limiter, used_doc_numbers, max_retries)
+                    if original_vendor_code == "V-VC00048" and cost_center and cost_center != "VCT":
                         logger.info(f"Creating VCT responsibility entries for mapped vendor V-VC00048 - Voucher: {entry_voucher_no}")
-                        vct_success, vct_failure = create_vct_responsibility_entries(entry, access_token, rate_limiter, max_retries)
+                        vct_success, vct_failure = create_vct_responsibility_entries(entry, access_token, rate_limiter, used_doc_numbers, max_retries)
                         success_count += vct_success
                         failure_count += vct_failure
                 
@@ -1428,23 +1471,40 @@ def process_entries(entries: List[Dict[str, Any]], access_token: str, balance_to
                     # Check if this document number has been used before for debit lines
                     # and append a suffix if needed
                     original_doc_no = entry_voucher_no
-                    if i > 0:  # First entry uses original document number
-                        if original_doc_no in used_doc_numbers:
-                            # Increment the count for this document number
-                            used_doc_numbers[original_doc_no] += 1
-                            # Append the suffix to the document number
-                            modified_doc_no = f"{original_doc_no}-{used_doc_numbers[original_doc_no]}"
-                            logger.info(f"Document number {original_doc_no} has been used before for debit line. Using {modified_doc_no} instead.")
-                            debit_line["Document_No"] = modified_doc_no
-                        else:
-                            # First time seeing this document number
-                            used_doc_numbers[original_doc_no] = 0
-                            debit_line["Document_No"] = original_doc_no
+                    
+                    # Log the document number being processed
+                    logger.info(f"Processing document number: {original_doc_no}")
+                    
+                    # Consistent handling for all document numbers
+                    # Always check if this document number is in the tracking dictionary
+                    if original_doc_no not in used_doc_numbers:
+                        used_doc_numbers[original_doc_no] = 0
+                        logger.info(f"Initializing counter for document number {original_doc_no}")
+                    
+                    # Check if this is a VCT responsibility entry
+                    original_vendor_code = entry.get('credit', {}).get('vendor_code', '')
+                    department = entry.get('credit', {}).get('department', '')
+                    cost_center = department[:3] if department else ''
+                    is_vct_responsibility = original_vendor_code == "V-VC00048" and cost_center and cost_center != "VCT"
+                    
+                    # For non-first entries, always increment and use suffix, but only for VCT responsibility entries
+                    if i > 0 and is_vct_responsibility:
+                        # Always increment for non-first entries of VCT responsibility
+                        used_doc_numbers[original_doc_no] += 1
+                        modified_doc_no = f"{original_doc_no}-{used_doc_numbers[original_doc_no]}"
+                        # Fix the log message format to match what we're looking for
+                        logger.info(f"Using modified document number {modified_doc_no} for VCT responsibility entry {i+1}")
+                        debit_line["Document_No"] = modified_doc_no
+                    elif i > 0:
+                        # For non-VCT responsibility entries, use original document number
+                        debit_line["Document_No"] = original_doc_no
+                        logger.info(f"Using original document number {original_doc_no} for non-VCT responsibility entry {i+1}")
                     else:
                         # First entry uses original document number
-                        if original_doc_no not in used_doc_numbers:
-                            used_doc_numbers[original_doc_no] = 0
                         debit_line["Document_No"] = original_doc_no
+                    
+                    # Add extra logging to verify counter state
+                    logger.info(f"After processing, counter for {original_doc_no} is now {used_doc_numbers[original_doc_no]}")
                     
                     # Use the original External_Document_No without modification
                     logger.info(f"Posting debit line {i+1}/{len(valid_entries)} for voucher {entry_voucher_no} with Document_No: {debit_line['Document_No']}")
@@ -1502,7 +1562,7 @@ def process_entries(entries: List[Dict[str, Any]], access_token: str, balance_to
                     
                     if original_vendor_code == "V-VC00048" and cost_center and cost_center != "VCT":
                         logger.info(f"Creating VCT responsibility entries for consolidated mapped vendor V-VC00048 - Voucher: {consolidated_voucher_no}")
-                        vct_success, vct_failure = create_vct_responsibility_entries(template_entry, access_token, rate_limiter, max_retries)
+                        vct_success, vct_failure = create_vct_responsibility_entries(template_entry, access_token, rate_limiter, used_doc_numbers, max_retries)
                         success_count += vct_success
                         failure_count += vct_failure
     
