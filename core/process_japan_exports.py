@@ -489,9 +489,14 @@ def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any
     
     # Get External_Document_No from the entry or fallback to voucher_no
     external_document_no = entry.get("External_Document_No", "") or entry.get("voucher_no", "")
-    if len(external_document_no) > 100:
-        external_document_no = external_document_no[:100]
-        logger.warning(f"Truncated External_Document_No to 100 characters: {external_document_no}")
+    # Truncate External_Document_No to 35 characters (Business Central API limit)
+    if len(external_document_no) > 35:
+        original_external_document_no = external_document_no
+        external_document_no = external_document_no[:35]
+        logger.warning(
+            f"Truncated External_Document_No from {len(original_external_document_no)} to 35 characters: "
+            f"'{original_external_document_no}' -> '{external_document_no}'"
+        )
     
     # Get Document_No from voucher_no
     document_no = entry.get("voucher_no", "")
