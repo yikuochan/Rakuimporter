@@ -263,6 +263,15 @@ def convert_csv_to_json(csv_file_path, json_file_path, max_desc_length=100, fix_
             external_doc_no = f"Empty-{int(time.time() * 1000)}"
             logger.info(f"Using generated External_Document_No for empty value: {external_doc_no}")
         
+        # Truncate External_Document_No to 35 characters (Business Central API limit)
+        if len(external_doc_no) > 35:
+            original_external_doc_no = external_doc_no
+            external_doc_no = external_doc_no[:35]
+            logger.warning(
+                f"Truncated External_Document_No from {len(original_external_doc_no)} to 35 characters: "
+                f"'{original_external_doc_no}' -> '{external_doc_no}'"
+            )
+        
         # Make External_Document_No unique if it's a duplicate
         original_external_doc_no = external_doc_no
         if external_doc_no in external_doc_no_counter:
