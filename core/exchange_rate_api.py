@@ -39,8 +39,9 @@ class ExchangeRateAPI:
             scope=self.scope
         )
         
-        # Base URL for API calls
-        self.base_url = f"https://api.businesscentral.dynamics.com/v2.0/{self.tenant_id}/Staging/ODataV4"
+        # Base URL for API calls - use environment variable for environment (Production/Staging)
+        environment = get_env_var("BC_ENVIRONMENT", default="Production")
+        self.base_url = f"https://api.businesscentral.dynamics.com/v2.0/{self.tenant_id}/{environment}/ODataV4"
         
         # Cache for exchange rates to minimize API calls
         self.rate_cache = {}

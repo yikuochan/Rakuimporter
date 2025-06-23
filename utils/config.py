@@ -15,7 +15,7 @@ from .env_config import get_env_var
 DEFAULT_CONFIG = {
     # API Configuration
     "ERP_TOKEN_URL": "https://login.microsoftonline.com/6b83c27c-aa6d-475a-9933-5c34bb008d73/oauth2/v2.0/token",
-    "ERP_API_URL_BASE": "https://api.businesscentral.dynamics.com/v2.0/6b83c27c-aa6d-475a-9933-5c34bb008d73/Staging/ODataV4/Company",
+    "ERP_API_URL_BASE": "https://api.businesscentral.dynamics.com/v2.0/6b83c27c-aa6d-475a-9933-5c34bb008d73/Production/ODataV4/Company",
     "ERP_API_ENDPOINT": "PurchaseJournals",
     "ERP_SCOPE": "https://api.businesscentral.dynamics.com/.default",
     "ERP_VERIFY_SSL": True,
