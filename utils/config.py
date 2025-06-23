@@ -15,13 +15,13 @@ from .env_config import get_env_var
 DEFAULT_CONFIG = {
     # API Configuration
     "ERP_TOKEN_URL": "https://login.microsoftonline.com/6b83c27c-aa6d-475a-9933-5c34bb008d73/oauth2/v2.0/token",
-    "ERP_API_URL_BASE": "https://api.businesscentral.dynamics.com/v2.0/6b83c27c-aa6d-475a-9933-5c34bb008d73/Production/ODataV4/Company",
     "ERP_API_ENDPOINT": "PurchaseJournals",
     "ERP_SCOPE": "https://api.businesscentral.dynamics.com/.default",
     "ERP_VERIFY_SSL": True,
     
     # Business Central Configuration
     "BC_TENANT_ID": "6b83c27c-aa6d-475a-9933-5c34bb008d73",
+    "BC_ENVIRONMENT": "Production",
     "BC_SCOPE": "https://api.businesscentral.dynamics.com/.default",
     "BC_VERIFY_SSL": True,
     "BC_COMPANY": "VCJ",
@@ -59,20 +59,27 @@ class Config:
     
     def _load_from_env(self):
         """Load configuration from environment variables."""
-        # API Configuration
-        self._config["ERP_TOKEN_URL"] = get_env_var("ERP_TOKEN_URL", default=self._config["ERP_TOKEN_URL"])
-        self._config["ERP_API_URL_BASE"] = get_env_var("ERP_API_URL_BASE", default=self._config["ERP_API_URL_BASE"])
-        self._config["ERP_API_ENDPOINT"] = get_env_var("ERP_API_ENDPOINT", default=self._config["ERP_API_ENDPOINT"])
-        self._config["ERP_SCOPE"] = get_env_var("ERP_SCOPE", default=self._config["ERP_SCOPE"])
-        self._config["ERP_VERIFY_SSL"] = get_env_var("ERP_VERIFY_SSL", default=str(self._config["ERP_VERIFY_SSL"]), as_type=bool)
-        
-        # Business Central Configuration
+        # Business Central Configuration (load first as other configs depend on it)
         self._config["BC_TENANT_ID"] = get_env_var("BC_TENANT_ID", default=self._config["BC_TENANT_ID"])
+        self._config["BC_ENVIRONMENT"] = get_env_var("BC_ENVIRONMENT", default=self._config["BC_ENVIRONMENT"])
         self._config["BC_CLIENT_ID"] = get_env_var("BC_CLIENT_ID", required=True)
         self._config["BC_CLIENT_SECRET"] = get_env_var("BC_CLIENT_SECRET", required=True)
         self._config["BC_SCOPE"] = get_env_var("BC_SCOPE", default=self._config["BC_SCOPE"])
         self._config["BC_VERIFY_SSL"] = get_env_var("BC_VERIFY_SSL", default=str(self._config["BC_VERIFY_SSL"]), as_type=bool)
         self._config["BC_COMPANY"] = get_env_var("BC_COMPANY", default=self._config["BC_COMPANY"])
+        
+        # API Configuration (construct ERP_API_URL_BASE using BC_ENVIRONMENT)
+        self._config["ERP_TOKEN_URL"] = get_env_var("ERP_TOKEN_URL", default=self._config["ERP_TOKEN_URL"])
+        
+        # Construct ERP_API_URL_BASE dynamically using BC_ENVIRONMENT
+        tenant_id = self._config["BC_TENANT_ID"]
+        environment = self._config["BC_ENVIRONMENT"]
+        default_erp_url = f"https://api.businesscentral.dynamics.com/v2.0/{tenant_id}/{environment}/ODataV4/Company"
+        self._config["ERP_API_URL_BASE"] = get_env_var("ERP_API_URL_BASE", default=default_erp_url)
+        
+        self._config["ERP_API_ENDPOINT"] = get_env_var("ERP_API_ENDPOINT", default=self._config["ERP_API_ENDPOINT"])
+        self._config["ERP_SCOPE"] = get_env_var("ERP_SCOPE", default=self._config["ERP_SCOPE"])
+        self._config["ERP_VERIFY_SSL"] = get_env_var("ERP_VERIFY_SSL", default=str(self._config["ERP_VERIFY_SSL"]), as_type=bool)
         
         # Journal Entry Configuration
         self._config["JOURNAL_TEMPLATE_NAME"] = get_env_var("JOURNAL_TEMPLATE_NAME", default=self._config["JOURNAL_TEMPLATE_NAME"])
