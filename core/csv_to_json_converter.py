@@ -279,7 +279,7 @@ def convert_csv_to_json(csv_file_path, json_file_path, max_desc_length=100, fix_
             external_doc_no = f"{original_external_doc_no}-{external_doc_no_counter[original_external_doc_no]}"
             logger.info(f"Made External_Document_No unique: {original_external_doc_no} -> {external_doc_no}")
         else:
-            external_doc_no_counter[original_external_doc_no] = 1
+            external_doc_no_counter[original_external_doc_no] = 0
         
         # Extract common fields for the journal entry
         entry = {
