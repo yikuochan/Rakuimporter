@@ -1100,7 +1100,7 @@ def create_vct_responsibility_entries(entry: Dict[str, Any], access_token: str, 
     
     # Always check if this document number is in the tracking dictionary
     if original_doc_no not in used_doc_numbers:
-        used_doc_numbers[original_doc_no] = 0
+        used_doc_numbers[original_doc_no] = -1
         logger.info(f"Initializing counter for document number {original_doc_no}")
     
     # Always increment for VCT responsibility entries
