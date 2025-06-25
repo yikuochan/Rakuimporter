@@ -20,7 +20,7 @@ logger = logging.getLogger("erp_api_integration")
 # Set decimal precision for all calculations
 getcontext().prec = 28
 
-def convert_amount(amount, from_currency, to_currency, company_code=None, excel_path=None, decimal_precision=2):
+def convert_amount(amount, from_currency, to_currency, company_code=None, excel_path=None, decimal_precision=0):
     """
     Convert an amount from one currency to another using exchange rates.
     Uses Decimal type for precise financial calculations.
@@ -31,7 +31,7 @@ def convert_amount(amount, from_currency, to_currency, company_code=None, excel_
         to_currency (str): Target currency code
         company_code (str, optional): Company code to use for exchange rate lookup
         excel_path (str, optional): Path to the exchange rate Excel file
-        decimal_precision (int, optional): Number of decimal places for rounding (default: 2)
+        decimal_precision (int, optional): Number of decimal places for rounding (default: 0)
         
     Returns:
         tuple: (converted_amount, success_flag)
@@ -79,7 +79,7 @@ def convert_amount(amount, from_currency, to_currency, company_code=None, excel_
         return amount, False
 
 def convert_through_intermediate(amount, from_currency, intermediate_currency, to_currency, 
-                                company_code=None, excel_path=None, decimal_precision=2):
+                                company_code=None, excel_path=None, decimal_precision=0):
     """
     Convert an amount through an intermediate currency without intermediate rounding.
     
@@ -90,7 +90,7 @@ def convert_through_intermediate(amount, from_currency, intermediate_currency, t
         to_currency (str): Target currency code
         company_code (str, optional): Company code to use for exchange rate lookup
         excel_path (str, optional): Path to the exchange rate Excel file
-        decimal_precision (int, optional): Number of decimal places for rounding (default: 2)
+        decimal_precision (int, optional): Number of decimal places for rounding (default: 0)
         
     Returns:
         tuple: (converted_amount, success_flag)
