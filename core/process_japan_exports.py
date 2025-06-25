@@ -175,7 +175,7 @@ def get_access_token() -> str:
         raise
 
 
-def transform_currency(company_code: str, currency_code: str, amount: float, decimal_precision: int = 2) -> Tuple[str, float]:
+def transform_currency(company_code: str, currency_code: str, amount: float, decimal_precision: int = 0) -> Tuple[str, float]:
     """
     Transform currency code based on company code and convert amount according to business rules.
     
@@ -183,7 +183,7 @@ def transform_currency(company_code: str, currency_code: str, amount: float, dec
         company_code: The company code (e.g., VCT, VCP, etc.)
         currency_code: The original currency code from the JSON
         amount: The amount to convert
-        decimal_precision: Number of decimal places for rounding (default: 2)
+        decimal_precision: Number of decimal places for rounding (default: 0)
         
     Returns:
         Tuple[str, float]: The transformed currency code and converted amount
