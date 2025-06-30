@@ -419,7 +419,12 @@ def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any
     # logger.info(f"Added voucher number to description: {description}")
     
     # Determine ShortcutDimCode4 based on account type and source of account_no
-    if entry_data.get("gl_account", "") == "Vendor" or entry.get("credit", {}).get("gl_account", "") == "Vendor":
+    # NEW: Special case for specific debit accounts (HIGHEST PRIORITY)
+    if entry_type == "debit" and entry_data.get("account") in ["72600-10", "72600-30"]:
+        shortcut_dim_code4 = "N/A"
+        logger.info(f"Setting ShortcutDimCode4 to 'N/A' for debit account {entry_data.get('account')} - Voucher: {entry.get('voucher_no', 'Unknown')}")
+    # EXISTING: Vendor account logic
+    elif entry_data.get("gl_account", "") == "Vendor" or entry.get("credit", {}).get("gl_account", "") == "Vendor":
         # For Vendor accounts or entries with Vendor credit, check the source of account_no
         # For debit lines of vendor payments, we need to check the credit side's account_source
         if entry_type == "debit" and entry.get("credit", {}).get("account_source") == "vendor_code":
@@ -434,6 +439,7 @@ def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any
             # If account_no comes from column N (申請者CD/支払先CD), use applicant_code
             shortcut_dim_code4 = entry_data.get("applicant_code", "")
             logger.info(f"Using applicant_code for ShortcutDimCode4 for Employee payment (申請者CD/支払先CD) - Voucher: {entry.get('voucher_no', 'Unknown')}")
+    # EXISTING: Non-vendor account logic
     else:
         # For non-Vendor accounts, keep using applicant_code
         shortcut_dim_code4 = entry_data.get("applicant_code", "")
