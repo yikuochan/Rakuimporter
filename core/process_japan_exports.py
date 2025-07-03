@@ -115,9 +115,13 @@ TOKEN_URL = get_env_var(
     "ERP_TOKEN_URL", 
     default="https://login.microsoftonline.com/6b83c27c-aa6d-475a-9933-5c34bb008d73/oauth2/v2.0/token"
 )
+
+# Get BC_ENVIRONMENT from environment variables, default to Staging if not set
+BC_ENVIRONMENT = get_env_var("BC_ENVIRONMENT", default="Staging")
+
 API_URL = get_env_var(
     "ERP_API_URL", 
-    default="https://api.businesscentral.dynamics.com/v2.0/6b83c27c-aa6d-475a-9933-5c34bb008d73/Staging/ODataV4/Company('VCT')/PurchaseJournals"
+    default=f"https://api.businesscentral.dynamics.com/v2.0/6b83c27c-aa6d-475a-9933-5c34bb008d73/{BC_ENVIRONMENT}/ODataV4/Company('VCT')/PurchaseJournals"
 )
 CLIENT_ID = get_env_var("ERP_CLIENT_ID", required=True)
 CLIENT_SECRET = get_env_var("ERP_CLIENT_SECRET", required=True)
@@ -781,8 +785,8 @@ def post_journal_line(journal_line: Dict[str, Any], access_token: str,
         company_code = shortcut_dim_code.split('.')[0] if '.' in shortcut_dim_code else shortcut_dim_code
         
         if company_code:
-            # Construct the API URL with the company code
-            base_url = "https://api.businesscentral.dynamics.com/v2.0/6b83c27c-aa6d-475a-9933-5c34bb008d73/Staging/ODataV4/Company"
+            # Construct the API URL with the company code using BC_ENVIRONMENT
+            base_url = f"https://api.businesscentral.dynamics.com/v2.0/6b83c27c-aa6d-475a-9933-5c34bb008d73/{BC_ENVIRONMENT}/ODataV4/Company"
             api_url = f"{base_url}('{company_code}')/PurchaseJournals"
             logger.info(f"Using company-specific API URL for {company_code}: {api_url}")
     
