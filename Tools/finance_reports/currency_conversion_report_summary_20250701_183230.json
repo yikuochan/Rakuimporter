@@ -1,0 +1,15 @@
+{
+  "report_generated": "2025-07-01T18:32:30.596221",
+  "log_file": "../../erp_api_integration.log",
+  "total_conversions": 5,
+  "total_transformations": 297,
+  "voucher_count": 3,
+  "currency_pairs": [
+    "USD/NTD"
+  ],
+  "rounding_summary": {
+    "total_rounding_impact": 0.6921,
+    "max_single_rounding": 0.33,
+    "conversions_with_rounding": 4
+  }
+}

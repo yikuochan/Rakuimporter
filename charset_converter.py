@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """
-charset_converter.py - Convert files from various charsets to UTF-8
+charset_converter.py - Convert files from various charsets to UTF-8 and fix CSV headers
 
 This script is designed to convert files with various encodings (such as
 unknown-8bit, Windows-1254, SHIFT_JIS, etc.) to UTF-8 for proper processing.
+It also includes functionality to fix problematic CSV headers that contain
+corrupted characters due to encoding issues.
 
 Usage:
     python charset_converter.py input_file [output_file] [options]
@@ -16,13 +18,126 @@ Options:
     -f, --force              Force conversion even if validation fails
     --japanese               Optimize for Japanese text (try Japanese encodings first)
     --list-encodings         List all available encodings and exit
+    --fix-headers            Fix problematic CSV headers after conversion
+    --headers-only           Only fix headers without charset conversion (file must be UTF-8)
+    -v, --verbose            Print detailed information about header replacement
+
+Examples:
+    # Convert charset and fix headers in one step
+    python charset_converter.py input.csv --fix-headers --verbose
+    
+    # Only fix headers (file already UTF-8)
+    python charset_converter.py input.utf8.csv --headers-only --verbose
+    
+    # Convert with specific encoding and fix headers
+    python charset_converter.py input.csv output.csv -e shift_jis --fix-headers
 """
 
 import os
 import sys
 import argparse
 import chardet
+import re
 from pathlib import Path
+
+# Known problematic header patterns and their replacements
+KNOWN_HEADER_REPLACEMENTS = {
+    'raku_export_pattern_1': {
+        'description': 'Raku export CSV with corrupted Japanese characters in headers',
+        'header_lines': [
+            '勘定奉行：伝票区切,G/L Account,仕訳日,申請日,仕訳データ生成日,伝票No.,借方：勘定科目：会計連携項目,借方：補助科目：会計連携項目,,,換算前額,単位,借方：負担部門：会計連携項目,申請者CD/支払先CD,支払先CD,摘要,フリー２(明細),Receipt/Invoice Note(明細),Receipt/Invoice No.(明細),借方：負担部門コード,備考',
+            ',Vendor,仕訳日,申請日,仕訳データ生成日,伝票No.,,,貸方：勘定科目：会計連携項目,貸方：補助科目：会計連携項目,換算前額,単位,借方：負担部門：会計連携項目,申請者CD/支払先CD,支払先CD,摘要,フリー２(明細),Receipt/Invoice Note(明細),Receipt/Invoice No.(明細),借方：負担部門コード,備考'
+        ]
+    }
+}
+
+def detect_problematic_headers(first_line, second_line):
+    """
+    Detect if the first two lines contain problematic header patterns
+    
+    Args:
+        first_line (str): First line of the CSV file
+        second_line (str): Second line of the CSV file
+        
+    Returns:
+        str or None: Pattern key if problematic headers detected, None otherwise
+    """
+    # Check for presence of "?" in header context with Japanese characters
+    combined_header = first_line + '\n' + second_line
+    
+    if '?' in combined_header and any(ord(c) > 0x3000 for c in combined_header):
+        # Check for specific patterns that indicate Raku export CSV issues
+        if ('勘定奉行：伝票区切' in first_line and 
+            'G/L Account' in first_line and
+            '会計連携?目' in combined_header and
+            'フ?ー２' in combined_header):
+            return 'raku_export_pattern_1'
+    
+    return None
+
+def fix_csv_headers(file_path, output_path=None, verbose=False):
+    """
+    Fix CSV headers by replacing entire problematic header lines with correct ones
+    
+    Args:
+        file_path (str): Path to the input CSV file
+        output_path (str, optional): Path to save the corrected file. If None, overwrites input file
+        verbose (bool): Print detailed information about the replacement
+        
+    Returns:
+        bool: True if headers were fixed, False if no problematic patterns found
+    """
+    try:
+        # Read the file
+        with open(file_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+        
+        if len(lines) < 2:
+            if verbose:
+                print("File has less than 2 lines, no header replacement needed.")
+            return False
+        
+        # Check if headers need fixing
+        first_line = lines[0].strip()
+        second_line = lines[1].strip()
+        pattern_key = detect_problematic_headers(first_line, second_line)
+        
+        if pattern_key:
+            if verbose:
+                print(f"Detected problematic header pattern: {pattern_key}")
+                print(f"Description: {KNOWN_HEADER_REPLACEMENTS[pattern_key]['description']}")
+                print("Original headers:")
+                print(f"  Line 1: {first_line[:100]}...")
+                print(f"  Line 2: {second_line[:100]}...")
+            
+            # Replace first two lines with correct headers
+            replacement_headers = KNOWN_HEADER_REPLACEMENTS[pattern_key]['header_lines']
+            lines[0] = replacement_headers[0] + '\n'
+            lines[1] = replacement_headers[1] + '\n'
+            
+            # Determine output path
+            if output_path is None:
+                output_path = file_path
+            
+            # Write corrected file
+            with open(output_path, 'w', encoding='utf-8') as f:
+                f.writelines(lines)
+            
+            if verbose:
+                print("Replaced with correct headers:")
+                print(f"  Line 1: {replacement_headers[0][:100]}...")
+                print(f"  Line 2: {replacement_headers[1][:100]}...")
+                print(f"Headers fixed and saved to: {output_path}")
+            
+            return True
+        else:
+            if verbose:
+                print("No problematic header patterns detected.")
+            return False
+            
+    except Exception as e:
+        print(f"Error fixing CSV headers: {str(e)}")
+        return False
 
 def detect_encoding(file_path, user_encoding=None):
     """
@@ -229,13 +344,16 @@ def convert_file(input_file, output_file, encodings_to_try, force=False):
         return False
 
 def main():
-    parser = argparse.ArgumentParser(description='Convert files from various charsets to UTF-8')
+    parser = argparse.ArgumentParser(description='Convert files from various charsets to UTF-8 and fix CSV headers')
     parser.add_argument('input_file', nargs='?', help='Path to the input file')
     parser.add_argument('output_file', nargs='?', help='Path to the output file (optional)')
     parser.add_argument('-e', '--encoding', help='Source encoding to try first (optional)')
     parser.add_argument('-f', '--force', action='store_true', help='Force conversion even if validation fails')
     parser.add_argument('--list-encodings', action='store_true', help='List all available encodings and exit')
     parser.add_argument('--japanese', action='store_true', help='Optimize for Japanese text (try Japanese encodings first)')
+    parser.add_argument('--fix-headers', action='store_true', help='Fix problematic CSV headers after conversion')
+    parser.add_argument('--headers-only', action='store_true', help='Only fix headers without charset conversion (file must be UTF-8)')
+    parser.add_argument('-v', '--verbose', action='store_true', help='Print detailed information about header replacement')
     
     args = parser.parse_args()
     
@@ -253,17 +371,34 @@ def main():
     
     input_file = args.input_file
     
+    # Check if input file exists
+    if not os.path.exists(input_file):
+        print(f"Error: Input file '{input_file}' does not exist.")
+        sys.exit(1)
+    
+    # Handle headers-only mode
+    if args.headers_only:
+        print("Headers-only mode: Fixing CSV headers without charset conversion")
+        if args.output_file:
+            output_file = args.output_file
+        else:
+            input_path = Path(input_file)
+            output_file = str(input_path.with_name(f"{input_path.stem}_headers_fixed{input_path.suffix}"))
+        
+        success = fix_csv_headers(input_file, output_file, args.verbose)
+        if success:
+            print(f"Headers successfully fixed and saved to: {output_file}")
+        else:
+            print("No problematic headers found or header fixing failed.")
+            sys.exit(1)
+        return
+    
     # If output file is not specified, create one with _utf8 appended
     if args.output_file:
         output_file = args.output_file
     else:
         input_path = Path(input_file)
         output_file = str(input_path.with_name(f"{input_path.stem}_utf8{input_path.suffix}"))
-    
-    # Check if input file exists
-    if not os.path.exists(input_file):
-        print(f"Error: Input file '{input_file}' does not exist.")
-        sys.exit(1)
     
     # Detect encoding, considering user-specified encoding if provided
     encodings_to_try = detect_encoding(input_file, args.encoding)
@@ -285,6 +420,15 @@ def main():
     
     if not success:
         sys.exit(1)
+    
+    # Fix headers if requested
+    if args.fix_headers:
+        print("\nFixing CSV headers after conversion...")
+        headers_fixed = fix_csv_headers(output_file, None, args.verbose)
+        if headers_fixed:
+            print("Headers successfully fixed in the converted file.")
+        else:
+            print("No problematic headers found in the converted file.")
 
 if __name__ == "__main__":
     main()

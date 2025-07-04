@@ -1,0 +1,17 @@
+{
+  "report_generated": "2025-07-01T18:27:28.108084",
+  "log_file": "../../Data/Logs/erp_api_integration-vct-pr1-2-0529.log",
+  "total_conversions": 41,
+  "total_transformations": 514,
+  "voucher_count": 3,
+  "currency_pairs": [
+    "USD/NTD",
+    "RMB/NTD",
+    "JPY/NTD"
+  ],
+  "rounding_summary": {
+    "total_rounding_impact": 0.0,
+    "max_single_rounding": 0.0,
+    "conversions_with_rounding": 0
+  }
+}

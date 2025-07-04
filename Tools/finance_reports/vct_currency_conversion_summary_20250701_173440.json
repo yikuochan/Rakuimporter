@@ -1,0 +1,27 @@
+{
+  "report_generated": "2025-07-01T17:34:40.881625",
+  "log_file": "../../Data/Logs/erp_api_integration-vct-pr1-2-0529.log",
+  "total_conversions": 41,
+  "total_transformations": 514,
+  "voucher_count": 3,
+  "currency_pairs": [
+    "JPY/NTD",
+    "RMB/NTD",
+    "USD/NTD"
+  ],
+  "validation_summary": {
+    "total": 41,
+    "passed": 23,
+    "passed_close": 7,
+    "uncertain": 0,
+    "failed": 11,
+    "no_response": 0,
+    "pass_rate": 73.17,
+    "strict_pass_rate": 56.1
+  },
+  "rounding_summary": {
+    "total_rounding_impact": 0.0,
+    "max_single_rounding": 0.0,
+    "conversions_with_rounding": 0
+  }
+}
