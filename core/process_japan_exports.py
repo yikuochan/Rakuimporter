@@ -40,12 +40,19 @@ import urllib3
 # Import currency converter
 from core.currency_converter import convert_amount, get_region_currency
 
+# Import VCT responsibility consolidation functions
+from core.vct_responsibility_consolidation import (
+    collect_vct_responsibility_candidates,
+    create_consolidated_vct_responsibility_entries
+)
+
 # Disable SSL warnings (for testing only)
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Import environment configuration utility
 try:
     from utils.env_config import get_env_var
+    from utils.config import config
 except ImportError:
     # Fallback if env_config.py is not available
     def get_env_var(name, default=None, required=False, as_type=str):
@@ -55,6 +62,13 @@ except ImportError:
                 raise ValueError(f"Required environment variable '{name}' is not set")
             return default
         return value
+    
+    # Fallback config if utils.config is not available
+    class FallbackConfig:
+        def get(self, key, default=None):
+            return get_env_var(key, default=default)
+    
+    config = FallbackConfig()
 
 # Global variable to track if logging has been initialized
 _logging_initialized = False
@@ -116,8 +130,8 @@ TOKEN_URL = get_env_var(
     default="https://login.microsoftonline.com/6b83c27c-aa6d-475a-9933-5c34bb008d73/oauth2/v2.0/token"
 )
 
-# Get BC_ENVIRONMENT from environment variables, default to Staging if not set
-BC_ENVIRONMENT = get_env_var("BC_ENVIRONMENT", default="Staging")
+# Get BC_ENVIRONMENT from centralized configuration
+BC_ENVIRONMENT = config.get("BC_ENVIRONMENT", "Production")
 
 API_URL = get_env_var(
     "ERP_API_URL", 
@@ -1214,6 +1228,7 @@ def process_entries(entries: List[Dict[str, Any]], access_token: str, balance_to
                    max_retries: int = 3) -> Tuple[int, int, int, int]:
     """
     Process all entries and post them to the ERP API with rate limiting.
+    Enhanced with VCT responsibility consolidation to reduce API calls and document numbers.
     
     Args:
         entries: List of journal entries
@@ -1242,6 +1257,14 @@ def process_entries(entries: List[Dict[str, Any]], access_token: str, balance_to
     # This ensures document numbers are unique across consolidated entries
     used_doc_numbers = {}
     logger.info("Initialized used_doc_numbers dictionary for tracking document number duplicates in consolidated entries")
+    
+    # Initialize external_doc_no_counter for External Document Number uniqueness
+    external_doc_no_counter = {}
+    logger.info("Initialized external_doc_no_counter dictionary for External Document Number uniqueness tracking")
+    
+    # STEP 1: Collect VCT responsibility candidates before processing regular entries
+    vct_candidates = collect_vct_responsibility_candidates(entries)
+    logger.info(f"Collected VCT responsibility candidates for {len(vct_candidates)} vouchers")
     
     # Group entries by voucher number and vendor code
     entry_groups = {}
@@ -1383,20 +1406,14 @@ def process_entries(entries: List[Dict[str, Any]], access_token: str, balance_to
                             
                             failure_count += 1
                     
+                    # Skip individual VCT responsibility entry creation - now handled in consolidated manner
                     # Check if this was a V-VC00048 mapping to VCT for non-VCT cost center
-                    # This should happen regardless of whether the credit line posting succeeded
                     original_vendor_code = entry.get('credit', {}).get('vendor_code', '')
                     department = entry.get('credit', {}).get('department', '')
                     cost_center = department[:3] if department else ''
                     
                     if original_vendor_code == "V-VC00048" and cost_center and cost_center != "VCT":
-                        logger.info(f"Creating VCT responsibility entries for consolidated mapped vendor V-VC00048 - Voucher: {entry_voucher_no}")
-                        vct_success, vct_failure = create_vct_responsibility_entries(entry, access_token, rate_limiter, used_doc_numbers, max_retries)
-                    if original_vendor_code == "V-VC00048" and cost_center and cost_center != "VCT":
-                        logger.info(f"Creating VCT responsibility entries for mapped vendor V-VC00048 - Voucher: {entry_voucher_no}")
-                        vct_success, vct_failure = create_vct_responsibility_entries(entry, access_token, rate_limiter, used_doc_numbers, max_retries)
-                        success_count += vct_success
-                        failure_count += vct_failure
+                        logger.info(f"V-VC00048 entry detected for voucher {entry_voucher_no} - will be processed in consolidated VCT responsibility step")
                 
                 # If this voucher is already consolidated and we have consolidated entries,
                 # post the consolidated credit line once
@@ -1581,6 +1598,17 @@ def process_entries(entries: List[Dict[str, Any]], access_token: str, balance_to
                         vct_success, vct_failure = create_vct_responsibility_entries(template_entry, access_token, rate_limiter, used_doc_numbers, max_retries)
                         success_count += vct_success
                         failure_count += vct_failure
+    
+    # STEP 2: Process consolidated VCT responsibility entries
+    for voucher_no, voucher_entries in vct_candidates.items():
+        logger.info(f"Processing consolidated VCT responsibility entries for voucher {voucher_no}")
+        vct_success, vct_failure = create_consolidated_vct_responsibility_entries(
+            voucher_entries, access_token, rate_limiter, used_doc_numbers, external_doc_no_counter, max_retries
+        )
+        success_count += vct_success
+        failure_count += vct_failure
+        
+        logger.info(f"Completed consolidated VCT responsibility processing for voucher {voucher_no} - Success: {vct_success}, Failure: {vct_failure}")
     
     # Generate report of unbalanced entries if any were found
     if unbalanced_entries:

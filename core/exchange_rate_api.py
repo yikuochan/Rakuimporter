@@ -9,7 +9,7 @@ import logging
 import requests
 from datetime import datetime
 from utils.oauth_token_helper import OAuthTokenHelper
-from utils.env_config import get_env_var
+from utils.config import config
 from utils.company_currency_mapping import get_home_currency, normalize_currency_code, get_all_currency_variants, COMPANY_HOME_CURRENCY
 
 # Configure logging
@@ -21,15 +21,13 @@ class ExchangeRateAPI:
     """
     
     def __init__(self):
-        """Initialize the Exchange Rate API client with configuration from environment variables."""
-        # Get configuration from environment variables
-        self.tenant_id = get_env_var("BC_TENANT_ID", 
-                                     default="6b83c27c-aa6d-475a-9933-5c34bb008d73")
-        self.client_id = get_env_var("BC_CLIENT_ID", required=True)
-        self.client_secret = get_env_var("BC_CLIENT_SECRET", required=True)
-        self.scope = get_env_var("BC_SCOPE", 
-                                default="https://api.businesscentral.dynamics.com/.default")
-        self.verify_ssl = get_env_var("BC_VERIFY_SSL", default="True", as_type=bool)
+        """Initialize the Exchange Rate API client with configuration from centralized config."""
+        # Get configuration from centralized config
+        self.tenant_id = config.get("BC_TENANT_ID", "6b83c27c-aa6d-475a-9933-5c34bb008d73")
+        self.client_id = config.get("BC_CLIENT_ID")
+        self.client_secret = config.get("BC_CLIENT_SECRET")
+        self.scope = config.get("BC_SCOPE", "https://api.businesscentral.dynamics.com/.default")
+        self.verify_ssl = config.get("BC_VERIFY_SSL", True)
         
         # Initialize OAuth helper
         self.oauth_helper = OAuthTokenHelper(
@@ -39,8 +37,8 @@ class ExchangeRateAPI:
             scope=self.scope
         )
         
-        # Base URL for API calls - use environment variable for environment (Production/Staging)
-        environment = get_env_var("BC_ENVIRONMENT", default="Production")
+        # Base URL for API calls - use centralized configuration for environment
+        environment = config.get("BC_ENVIRONMENT", "Production")
         self.base_url = f"https://api.businesscentral.dynamics.com/v2.0/{self.tenant_id}/{environment}/ODataV4"
         
         # Cache for exchange rates to minimize API calls
