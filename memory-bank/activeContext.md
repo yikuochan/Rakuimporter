@@ -1,8 +1,8 @@
 ---
 title: Active Context - Current Work and Recent Changes
-version: 1.0
+version: 1.1
 created: 2025-01-14
-last_updated: 2025-01-14
+last_updated: 2025-07-15
 ---
 
 # Active Context
@@ -40,7 +40,25 @@ The Power Importer system is in a **Production Ready** state with recent major o
 - Cleaner document numbering sequence
 - Preserved individual debit details while consolidating credits
 
-### 3. External Document Numbering Fix ✅
+### 3. Environment Configuration Issue Resolution ✅ (July 2025)
+**Problem Solved**: Mixed environment usage where VCA entries went to Production while VCT entries went to Staging simultaneously.
+
+**Root Cause**: Inconsistent environment variable handling across modules - some used centralized config while others accessed environment variables directly.
+
+**Solution Implemented**:
+- Fixed `core/process_japan_exports.py` to use centralized configuration
+- Fixed `core/vct_responsibility_consolidation.py` to use centralized configuration  
+- Fixed `core/exchange_rate_api.py` to use centralized configuration
+- Created comprehensive test suite (`Tools/test_environment_configuration.py`)
+- Documented issue analysis in `docs/environment_configuration_issue_analysis.md`
+
+**Impact**:
+- Eliminated mixed environment insertions (no more Production/Staging splits)
+- Consistent API URL generation across all companies
+- All modules now use centralized configuration from `utils/config.py`
+- Comprehensive testing prevents future regressions
+
+### 4. External Document Numbering Fix ✅
 **Problem Solved**: External document numbering was not maintaining uniqueness across different vouchers.
 
 **Solution Implemented**:
