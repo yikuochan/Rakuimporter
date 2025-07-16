@@ -1311,9 +1311,12 @@ def process_entries(entries: List[Dict[str, Any]], access_token: str, balance_to
             if not valid_entries:
                 continue
                 
-            # If only one valid entry in the group or this voucher is already consolidated,
-            # process each entry individually
-            if len(valid_entries) == 1 or is_already_consolidated:
+            # Check if this is a V-VC00048 vendor (should be processed individually)
+            is_vct_responsibility_vendor = vendor_code == "V-VC00048"
+            
+            # If only one valid entry in the group, this voucher is already consolidated,
+            # or this is a V-VC00048 vendor, process each entry individually
+            if len(valid_entries) == 1 or is_already_consolidated or is_vct_responsibility_vendor:
                 # Process each valid entry individually
                 for entry in valid_entries:
                     entry_voucher_no = entry.get('voucher_no', 'Unknown')
