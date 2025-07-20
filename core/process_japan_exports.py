@@ -948,8 +948,8 @@ def verify_balanced_amounts(entry_or_entries, tolerance=0.01):
         debit_total += converted_debit
         credit_total += converted_credit
     
-    # Calculate difference
-    difference = abs(debit_total - credit_total)
+    # Calculate difference (ensure both values are the same type)
+    difference = abs(float(debit_total) - float(credit_total))
     
     # Check if within tolerance
     is_balanced = difference <= tolerance
@@ -1256,7 +1256,7 @@ def process_entries(entries: List[Dict[str, Any]], access_token: str, balance_to
     # Create a dictionary to track used document numbers for debit lines in consolidated entries
     # This ensures document numbers are unique across consolidated entries
     used_doc_numbers = {}
-    logger.info("Initialized used_doc_numbers dictionary for tracking document number duplicates in consolidated entries")
+    logger.info("Initialized used_doc_numbers dictionary for tracking document number sequences")
     
     # Initialize external_doc_no_counter for External Document Number uniqueness
     external_doc_no_counter = {}
@@ -1266,12 +1266,30 @@ def process_entries(entries: List[Dict[str, Any]], access_token: str, balance_to
     vct_candidates = collect_vct_responsibility_candidates(entries)
     logger.info(f"Collected VCT responsibility candidates for {len(vct_candidates)} vouchers")
     
+    # Filter out VCT responsibility entries before processing
+    filtered_entries = []
+    for entry in entries:
+        # Check if this is a VCT responsibility entry and skip it
+        if entry.get("vct_responsibility", False):
+            logger.info(f"Skipping VCT responsibility entry - Voucher: {entry.get('voucher_no', 'Unknown')}")
+            continue
+        
+        # Also check if debit or credit entries have vct_responsibility flag
+        if (entry.get("debit", {}).get("vct_responsibility", False) or 
+            entry.get("credit", {}).get("vct_responsibility", False)):
+            logger.info(f"Skipping VCT responsibility entry (debit/credit flag) - Voucher: {entry.get('voucher_no', 'Unknown')}")
+            continue
+        
+        filtered_entries.append(entry)
+    
+    logger.info(f"Filtered {len(entries) - len(filtered_entries)} VCT responsibility entries, processing {len(filtered_entries)} regular entries")
+    
     # Group entries by voucher number and vendor code
     entry_groups = {}
     # Track entries that are already consolidated in the input data
     already_consolidated = set()
     
-    for entry in entries:
+    for entry in filtered_entries:
         voucher_no = entry.get('voucher_no', 'Unknown')
         vendor_code = entry.get('credit', {}).get('vendor_code', '')
         
@@ -1321,6 +1339,17 @@ def process_entries(entries: List[Dict[str, Any]], access_token: str, balance_to
                 for entry in valid_entries:
                     entry_voucher_no = entry.get('voucher_no', 'Unknown')
                     logger.info(f"Processing individual entry - Voucher: {entry_voucher_no}")
+                
+                    # Check if this is a VCT responsibility entry and skip regular processing
+                    if entry.get("vct_responsibility", False):
+                        logger.info(f"Skipping VCT responsibility entry - Voucher: {entry_voucher_no}")
+                        continue
+                    
+                    # Also check if debit or credit entries have vct_responsibility flag
+                    if (entry.get("debit", {}).get("vct_responsibility", False) or 
+                        entry.get("credit", {}).get("vct_responsibility", False)):
+                        logger.info(f"Skipping VCT responsibility entry (debit/credit flag) - Voucher: {entry_voucher_no}")
+                        continue
                 
                     # Verify that debit and credit amounts balance after currency conversion
                     is_balanced, difference, debit_total, credit_total = verify_balanced_amounts(entry, balance_tolerance)
@@ -1416,7 +1445,7 @@ def process_entries(entries: List[Dict[str, Any]], access_token: str, balance_to
                     cost_center = department[:3] if department else ''
                     
                     if original_vendor_code == "V-VC00048" and cost_center and cost_center != "VCT":
-                        logger.info(f"V-VC00048 entry detected for voucher {entry_voucher_no} - will be processed in consolidated VCT responsibility step")
+                        logger.info(f"V-VC00048 entry detected for voucher {entry_voucher_no} - will be processed as individual VCT responsibility pairs")
                 
                 # If this voucher is already consolidated and we have consolidated entries,
                 # post the consolidated credit line once
@@ -1604,14 +1633,14 @@ def process_entries(entries: List[Dict[str, Any]], access_token: str, balance_to
     
     # STEP 2: Process consolidated VCT responsibility entries
     for voucher_no, voucher_entries in vct_candidates.items():
-        logger.info(f"Processing consolidated VCT responsibility entries for voucher {voucher_no}")
+        logger.info(f"Processing VCT responsibility entries for voucher {voucher_no} (individual pairs for V-VC00048)")
         vct_success, vct_failure = create_consolidated_vct_responsibility_entries(
             voucher_entries, access_token, rate_limiter, used_doc_numbers, external_doc_no_counter, max_retries
         )
         success_count += vct_success
         failure_count += vct_failure
         
-        logger.info(f"Completed consolidated VCT responsibility processing for voucher {voucher_no} - Success: {vct_success}, Failure: {vct_failure}")
+        logger.info(f"Completed VCT responsibility processing for voucher {voucher_no} - Success: {vct_success}, Failure: {vct_failure}")
     
     # Generate report of unbalanced entries if any were found
     if unbalanced_entries:

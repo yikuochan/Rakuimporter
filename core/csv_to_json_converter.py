@@ -55,17 +55,11 @@ logger = logging.getLogger("csv_converter")
 logger.setLevel(logging.INFO)
 logger.handlers = []  # Remove any existing handlers
 
-# Create file handler
+# Create file handler only (console logging will be handled by the main application)
 file_handler = logging.FileHandler("csv_conversion.log", mode='w')
 file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 file_handler.setFormatter(file_formatter)
 logger.addHandler(file_handler)
-
-# Create console handler
-console_handler = logging.StreamHandler(sys.stdout)
-console_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-console_handler.setFormatter(console_formatter)
-logger.addHandler(console_handler)
 
 # Add a startup message to verify logging is working
 logger.info("CSV to JSON converter started")
@@ -405,6 +399,138 @@ def convert_csv_to_json(csv_file_path, json_file_path, max_desc_length=100, fix_
     
     return len(consolidated_entries)
 
+def create_vct_responsibility_debit_entry(original_entry):
+    """
+    Create a VCT responsibility debit entry for non-VCT cost centers with V-VC00048 vendor.
+    
+    Args:
+        original_entry: The original entry requiring VCT responsibility
+        
+    Returns:
+        dict: VCT responsibility debit entry
+    """
+    credit_data = original_entry.get('credit', {})
+    department = credit_data.get('department', '')
+    cost_center = department[:3] if department else ''
+    
+    # Create description with cost center prefix
+    original_description = original_entry.get('description', '') or original_entry.get('credit_description', '')
+    vct_description = f"{department} {original_description}"
+    
+    # Truncate description if too long
+    if len(vct_description) > 100:
+        vct_description = vct_description[:100]
+        logger.warning(f"Truncated VCT responsibility description to 100 characters: {vct_description}")
+    
+    # Create VCT responsibility debit entry
+    vct_debit_entry = {
+        "voucher_no": original_entry["voucher_no"],
+        "transaction_date": original_entry["transaction_date"],
+        "application_date": original_entry["application_date"],
+        "journal_generation_date": original_entry["journal_generation_date"],
+        "description": vct_description,
+        "credit_description": original_entry.get("credit_description", ""),
+        "note": original_entry["note"],
+        "receipt_invoice": original_entry["receipt_invoice"],
+        "External_Document_No": original_entry["External_Document_No"],
+        "Document_Date": original_entry["Document_Date"],
+        "debit": {
+            "marker": "",
+            "gl_account": "G/L Account",
+            "account": "18600-10",  # Fixed account number
+            "sub_account": "",
+            "amount": credit_data.get('amount', 0),
+            "currency": credit_data.get('currency', ''),
+            "department": "VCT.9999",  # Fixed VCT department
+            "applicant_code": "",
+            "vendor_code": "",
+            "free_field": "",
+            "department_code": "VCT.9999",  # Fixed VCT department code
+            "vct_responsibility": True,  # Mark as VCT responsibility entry
+            "original_cost_center": cost_center  # Track original cost center
+        },
+        "credit": {
+            "marker": "",
+            "gl_account": "",
+            "account": "",
+            "sub_account": "",
+            "amount": 0,
+            "currency": "",
+            "department": "",
+            "applicant_code": "",
+            "vendor_code": "",
+            "free_field": "",
+            "department_code": "",
+            "Remarks": ""
+        }
+    }
+    
+    logger.info(f"Created VCT responsibility debit entry for {cost_center} cost center - Amount: {credit_data.get('amount', 0)}")
+    return vct_debit_entry
+
+def create_vct_responsibility_credit_entry(original_entry):
+    """
+    Create a VCT responsibility credit entry for non-VCT cost centers with V-VC00048 vendor.
+    
+    Args:
+        original_entry: The original entry requiring VCT responsibility
+        
+    Returns:
+        dict: VCT responsibility credit entry
+    """
+    credit_data = original_entry.get('credit', {})
+    department = credit_data.get('department', '')
+    cost_center = department[:3] if department else ''
+    
+    # Use original description without cost center prefix for credit entry
+    original_description = original_entry.get('description', '') or original_entry.get('credit_description', '')
+    
+    # Create VCT responsibility credit entry
+    vct_credit_entry = {
+        "voucher_no": original_entry["voucher_no"],
+        "transaction_date": original_entry["transaction_date"],
+        "application_date": original_entry["application_date"],
+        "journal_generation_date": original_entry["journal_generation_date"],
+        "description": original_description,
+        "credit_description": original_entry.get("credit_description", ""),
+        "note": original_entry["note"],
+        "receipt_invoice": original_entry["receipt_invoice"],
+        "External_Document_No": original_entry["External_Document_No"],
+        "Document_Date": original_entry["Document_Date"],
+        "debit": {
+            "marker": "",
+            "gl_account": "",
+            "account": "",
+            "sub_account": "",
+            "amount": 0,
+            "currency": "",
+            "department": "",
+            "applicant_code": "",
+            "vendor_code": "",
+            "free_field": "",
+            "department_code": "",
+        },
+        "credit": {
+            "marker": "",
+            "gl_account": "Vendor",
+            "account": "V-VC00048",  # Fixed vendor code
+            "sub_account": "",
+            "amount": credit_data.get('amount', 0),
+            "currency": credit_data.get('currency', ''),
+            "department": "VCT.9999",  # Fixed VCT department
+            "applicant_code": "",
+            "vendor_code": "V-VC00048",  # Fixed vendor code
+            "free_field": "",
+            "department_code": "VCT.9999",  # Fixed VCT department code
+            "Remarks": original_description,
+            "vct_responsibility": True,  # Mark as VCT responsibility entry
+            "original_cost_center": cost_center  # Track original cost center
+        }
+    }
+    
+    logger.info(f"Created VCT responsibility credit entry for {cost_center} cost center - Amount: {credit_data.get('amount', 0)}")
+    return vct_credit_entry
+
 def consolidate_entries(entries):
     """
     Consolidate entries based on voucher_no (伝票No.) and vendor_code.
@@ -507,6 +633,51 @@ def consolidate_entries(entries):
                 consolidated_entries.append(consolidated_entry)
             
             # Now create one consolidated credit entry per vendor per voucher
+            # UPDATED FIX: Apply cost center-specific consolidation rules for V-VC00048
+            # Other V-VC vendors still excluded from consolidation per GitHub issue #78
+            if vendor_entries and vendor_code.startswith("V-VC") and vendor_code != "V-VC00048":
+                # Log that non-V-VC00048 V-VC entries are being excluded from consolidation
+                logger.info(f"Excluding V-VC vendor {vendor_code} from consolidation in voucher {voucher_no} - {len(vendor_entries)} entries will be processed individually")
+                # Skip consolidation for V-VC vendors (except V-VC00048) - they will be processed individually
+                continue
+            
+            # Special handling for V-VC00048: Apply cost center-specific consolidation rules
+            if vendor_entries and vendor_code == "V-VC00048":
+                # Extract cost center from the first entry
+                first_entry = vendor_entries[0]
+                department = first_entry.get('credit', {}).get('department', '')
+                cost_center = department[:3] if department else ''
+                
+                # Apply cost center-specific consolidation rules
+                if cost_center == "VCT":
+                    # VCT cost center: Apply normal consolidation
+                    logger.info(f"Applying VCT consolidation rules for V-VC00048 vendor in VCT cost center - Voucher: {voucher_no}")
+                    # Continue with normal consolidation logic below
+                elif cost_center in ["VCA", "VCP", "VCG", "VCJ"]:
+                    # Non-VCT cost centers: Create VCT responsibility entries and skip consolidation
+                    logger.info(f"Creating VCT responsibility entries for V-VC00048 vendor in {cost_center} cost center - Voucher: {voucher_no} (no consolidation)")
+                    
+                    # Calculate total amount for VCT responsibility entries
+                    total_amount = sum(entry.get('credit', {}).get('amount', 0) for entry in vendor_entries)
+                    template_entry = vendor_entries[0]  # Use first entry as template
+                    
+                    # Create one VCT responsibility debit entry (consolidated amount)
+                    vct_debit_entry = create_vct_responsibility_debit_entry(template_entry)
+                    vct_debit_entry['debit']['amount'] = total_amount  # Use total amount
+                    consolidated_entries.append(vct_debit_entry)
+                    
+                    # Create one VCT responsibility credit entry (consolidated amount)
+                    vct_credit_entry = create_vct_responsibility_credit_entry(template_entry)
+                    vct_credit_entry['credit']['amount'] = total_amount  # Use total amount
+                    consolidated_entries.append(vct_credit_entry)
+                    
+                    # Skip consolidation for non-VCT cost centers
+                    continue
+                else:
+                    # Unknown cost center: Exclude from consolidation (safe fallback)
+                    logger.info(f"Excluding V-VC00048 vendor with unknown cost center '{cost_center}' from consolidation - Voucher: {voucher_no}")
+                    continue
+            
             if vendor_entries:
                 # Use the first entry as a template for the consolidated credit entry
                 template_entry = vendor_entries[0]
