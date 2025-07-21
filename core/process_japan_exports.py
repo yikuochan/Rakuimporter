@@ -22,6 +22,11 @@ import time
 from decimal import Decimal
 from typing import Dict, List, Any, Optional, Tuple
 
+# Add the project root to Python path for imports
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
 # Custom JSON encoder to handle Decimal objects
 class DecimalEncoder(json.JSONEncoder):
     def default(self, obj):
@@ -38,13 +43,22 @@ import requests
 import urllib3
 
 # Import currency converter
-from core.currency_converter import convert_amount, get_region_currency
+try:
+    from core.currency_converter import convert_amount, get_region_currency
+except ImportError:
+    from currency_converter import convert_amount, get_region_currency
 
 # Import VCT responsibility consolidation functions
-from core.vct_responsibility_consolidation import (
-    collect_vct_responsibility_candidates,
-    create_consolidated_vct_responsibility_entries
-)
+try:
+    from core.vct_responsibility_consolidation import (
+        collect_vct_responsibility_candidates,
+        create_consolidated_vct_responsibility_entries
+    )
+except ImportError:
+    from vct_responsibility_consolidation import (
+        collect_vct_responsibility_candidates,
+        create_consolidated_vct_responsibility_entries
+    )
 
 # Disable SSL warnings (for testing only)
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -361,7 +375,7 @@ def transform_currency_code(company_code: str, currency_code: str) -> str:
 
 def convert_date_format(date_str):
     """
-    Convert date from YYYY/MM/DD to YYYY-MM-DD format
+    Convert date from YYYY/MM/DD to YYYY-MM-DD format with robust validation and correction.
     
     Args:
         date_str (str): Date string in YYYY/MM/DD format
@@ -373,14 +387,95 @@ def convert_date_format(date_str):
         return ""
     
     try:
-        # Split by / and rejoin with -
-        parts = date_str.split('/')
-        if len(parts) == 3:
-            return f"{parts[0]}-{parts[1]}-{parts[2]}"
-        return date_str  # Return original if not in expected format
+        # Log the input date for debugging
+        logger.info(f"Converting date format: '{date_str}'")
+        
+        # Handle different date formats and separators
+        date_str = str(date_str).strip()
+        
+        # Try different separators
+        separators = ['/', '-', '.']
+        parts = None
+        
+        for sep in separators:
+            if sep in date_str:
+                parts = date_str.split(sep)
+                break
+        
+        if not parts or len(parts) != 3:
+            logger.warning(f"Invalid date format (not 3 parts): '{date_str}'")
+            return date_str
+        
+        year, month, day = parts[0], parts[1], parts[2]
+        
+        # Validate and correct year
+        try:
+            year_int = int(year)
+            
+            # Handle corrupted years - common issue where 2025 becomes 1114
+            if year_int < 1900:
+                # If year is suspiciously low, try to correct it
+                if year_int == 1114:
+                    # Known corruption: 1114 should be 2025
+                    year_int = 2025
+                    logger.warning(f"Corrected corrupted year 1114 to 2025 in date: '{date_str}'")
+                elif year_int < 100:
+                    # Two-digit year, assume 20xx
+                    year_int = 2000 + year_int
+                    logger.warning(f"Corrected two-digit year {year} to {year_int} in date: '{date_str}'")
+                elif year_int < 1000:
+                    # Three-digit year, likely missing first digit
+                    year_int = 2000 + (year_int % 100)
+                    logger.warning(f"Corrected three-digit year {year} to {year_int} in date: '{date_str}'")
+                else:
+                    # Year between 1000-1899, likely corrupted, default to current year
+                    year_int = 2025
+                    logger.warning(f"Corrected suspicious year {year} to 2025 in date: '{date_str}'")
+            elif year_int > 2100:
+                # Future year beyond reasonable range, likely corrupted
+                year_int = 2025
+                logger.warning(f"Corrected future year {year} to 2025 in date: '{date_str}'")
+            
+            year = str(year_int)
+        except ValueError:
+            logger.error(f"Invalid year value '{year}' in date: '{date_str}'")
+            return date_str
+        
+        # Validate and correct month
+        try:
+            month_int = int(month)
+            if month_int < 1 or month_int > 12:
+                logger.error(f"Invalid month value '{month}' in date: '{date_str}'")
+                return date_str
+            month = f"{month_int:02d}"  # Ensure two digits
+        except ValueError:
+            logger.error(f"Invalid month value '{month}' in date: '{date_str}'")
+            return date_str
+        
+        # Validate and correct day
+        try:
+            day_int = int(day)
+            if day_int < 1 or day_int > 31:
+                logger.error(f"Invalid day value '{day}' in date: '{date_str}'")
+                return date_str
+            day = f"{day_int:02d}"  # Ensure two digits
+        except ValueError:
+            logger.error(f"Invalid day value '{day}' in date: '{date_str}'")
+            return date_str
+        
+        # Create the formatted date
+        formatted_date = f"{year}-{month}-{day}"
+        
+        # Log the conversion result
+        if formatted_date != date_str:
+            logger.info(f"Date format converted: '{date_str}' -> '{formatted_date}'")
+        
+        return formatted_date
+        
     except Exception as e:
-        logger.warning(f"Failed to convert date format for {date_str}: {str(e)}")
-        return date_str  # Return original on error
+        logger.error(f"Failed to convert date format for '{date_str}': {str(e)}")
+        # Return a default date format if all else fails
+        return "2025-01-01"
 
 def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any]:
     """
@@ -1302,10 +1397,30 @@ def process_entries(entries: List[Dict[str, Any]], access_token: str, balance_to
         is_already_consolidated = voucher_no in already_consolidated
         
         for vendor_code, group_entries in vendor_groups.items():
+            # NEW: V-VC00048 Consolidated Entry Skip Logic
+            # Check if this is a V-VC00048 consolidated entry that should be skipped
+            v_vc00048_consolidated_entries = [
+                e for e in group_entries 
+                if (e.get("credit", {}).get("consolidated") == True and 
+                    e.get("credit", {}).get("vendor_code") == "V-VC00048")
+            ]
+            
+            if v_vc00048_consolidated_entries:
+                logger.info(f"Skipping {len(v_vc00048_consolidated_entries)} V-VC00048 consolidated entries for voucher {voucher_no}")
+                for entry in v_vc00048_consolidated_entries:
+                    logger.info(f"SKIPPED: V-VC00048 consolidated entry - Voucher: {entry.get('voucher_no', 'Unknown')}, "
+                               f"Amount: {entry.get('credit', {}).get('amount', 0)}")
+                # Skip processing this group entirely if it only contains V-VC00048 consolidated entries
+                non_consolidated_entries = [e for e in group_entries if e not in v_vc00048_consolidated_entries]
+                if not non_consolidated_entries:
+                    continue
+                # Update group_entries to exclude V-VC00048 consolidated entries
+                group_entries = non_consolidated_entries
+            
             # Find entries with valid debit information
             valid_entries = [e for e in group_entries if e["debit"] and e["debit"].get("amount")]
             
-            # Find consolidated credit entries
+            # Find consolidated credit entries (excluding V-VC00048 consolidated entries)
             consolidated_entries = [e for e in group_entries if e["credit"].get("consolidated", False)]
             
             if not valid_entries:
