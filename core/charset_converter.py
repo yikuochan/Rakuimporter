@@ -124,6 +124,90 @@ def is_valid_conversion(text, encoding):
     
     return True
 
+def replace_csv_headers_if_needed(content, quality_score):
+    """
+    Replace CSV headers with proper Japanese headers if conversion quality is poor.
+    VCT CSV template has 2 header lines that need to be replaced.
+    
+    Args:
+        content (str): CSV content
+        quality_score (float): Quality score of the conversion
+        
+    Returns:
+        str: Content with replaced headers if needed
+    """
+    # Always check for corrupted headers, regardless of quality score
+    # Quality score might be 100% but headers can still be corrupted
+    
+    lines = content.split('\n')
+    if not lines:
+        return content
+    
+    # Check if this is a CSV file by looking at the first line
+    first_line = lines[0].strip()
+    if ',' not in first_line:
+        return content
+    
+    # Define the correct Japanese headers for VCT CSV template (2 header lines)
+    # Header line 1: Main headers
+    header_line_1 = [
+        "勘定奉行：伝票区切", "G/L Account", "仕訳日", "申請日", "仕訳データ生成日", "伝票No.", 
+        "借方：勘定科目：会計連携項目", "借方：補助科目：会計連携項目", "", "", "換算前額", "単位", 
+        "借方：負担部門：会計連携項目", "申請者CD/支払先CD", "支払先CD", "摘要", "フリー２(明細)", 
+        "Receipt/Invoice Note(明細)", "Receipt/Invoice No.(明細)", "借方：負担部門コード", "備考"
+    ]
+    
+    # Header line 2: Secondary headers (for vendor entries)
+    header_line_2 = [
+        "", "Vendor", "仕訳日", "申請日", "仕訳データ生成日", "伝票No.", "", "", 
+        "貸方：勘定科目：会計連携項目", "貸方：補助科目：会計連携項目", "換算前額", "単位", 
+        "借方：負担部門：会計連携項目", "申請者CD/支払先CD", "支払先CD", "摘要", "フリー２(明細)", 
+        "Receipt/Invoice Note(明細)", "Receipt/Invoice No.(明細)", "借方：負担部門コード", "備考"
+    ]
+    
+    # Check if we need to replace headers (look for corrupted characters or non-Japanese headers)
+    needs_replacement = False
+    
+    # Check for corrupted UTF-8 characters in headers
+    corrupted_chars = ['ä', 'ç', 'å', 'è', 'æ', 'ã', 'ª', '¥', '¨', '§', '©', '¡', '¿', '°', 'ň', 'ś', 'Ř', 'ű', 'Ú', 'ď', 'v', 'A', 'g', 'Ú', 'ˇ', 'Z', 'O', 'z', 'P', 'Ę', 'S', 'ĺ', 'F', '\\', 'ż', 'Ň', 'C', 'D', '/', 'x', 'Ľ', 'ć', 'E', 'v', 't', '[', 'Q', '(', 'ž', '×', ')', 'R', '[', 'h', 'ő', 'ł']
+    if any(char in first_line for char in corrupted_chars):
+        needs_replacement = True
+        print(f"Detected corrupted headers due to encoding issues (quality: {quality_score:.1f}%)")
+    
+    # Check the second line too if it exists
+    if len(lines) > 1:
+        second_line = lines[1].strip()
+        if any(char in second_line for char in corrupted_chars):
+            needs_replacement = True
+            print(f"Detected corrupted headers in second line due to encoding issues")
+    
+    # Check if headers are in English or other non-Japanese format
+    english_indicators = ['voucher', 'document', 'date', 'account', 'amount', 'currency', 'department']
+    if any(indicator in first_line.lower() for indicator in english_indicators):
+        needs_replacement = True
+        print(f"Detected English headers, replacing with Japanese format")
+    
+    if needs_replacement:
+        print("Replacing CSV headers with correct Japanese format (2 header lines for VCT template)")
+        
+        # Replace the first two lines with correct Japanese headers
+        new_lines = [
+            ','.join(header_line_1),  # First header line
+            ','.join(header_line_2)   # Second header line
+        ]
+        
+        # Keep the rest of the content (data rows)
+        if len(lines) > 2:
+            # Keep data from line 3 onwards
+            new_lines.extend(lines[2:])
+        elif len(lines) > 1:
+            # If there's only one data line after headers, keep it
+            new_lines.extend(lines[1:])
+        
+        return '\n'.join(new_lines)
+    
+    return content
+
 def convert_file(input_file, output_file, encodings_to_try, force=False):
     """
     Convert a file from the detected encoding to UTF-8
@@ -218,8 +302,11 @@ def convert_file(input_file, output_file, encodings_to_try, force=False):
     
     # If we found a usable encoding, write the output file
     if best_encoding:
+        # Apply header replacement if needed for CSV files
+        final_content = replace_csv_headers_if_needed(best_content, best_quality_score)
+        
         with open(output_file, 'w', encoding='utf-8') as f_out:
-            f_out.write(best_content)
+            f_out.write(final_content)
         
         print(f"Successfully converted {input_file} from {best_encoding} to UTF-8")
         print(f"Output saved to {output_file}")
