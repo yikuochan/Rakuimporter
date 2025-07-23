@@ -1,0 +1,1866 @@
+#!/usr/bin/env python3
+"""
+VicOne ERP API Integration Script
+
+This script processes JSON files containing journal entries and posts them to the VicOne ERP API.
+For each entry in the input file, it generates two journal lines (debit and credit) and posts them
+to the ERP API endpoint.
+
+Usage:
+    python process_japan_exports.py <input_json_file>
+
+Example:
+    python process_japan_exports.py jp-test-Evelyn\\ Raku\\ export_journal_data.json
+"""
+
+import argparse
+import json
+import logging
+import os
+import sys
+import time
+from decimal import Decimal
+from typing import Dict, List, Any, Optional, Tuple
+
+# Custom JSON encoder to handle Decimal objects
+class DecimalEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, Decimal):
+            return float(obj)
+        return super(DecimalEncoder, self).default(obj)
+
+# Force reset the logging configuration
+for handler in logging.root.handlers[:]:
+    logging.root.removeHandler(handler)
+
+import certifi
+import requests
+import urllib3
+
+# Import currency converter
+from core.currency_converter import convert_amount, get_region_currency
+
+# Import VCT responsibility consolidation functions
+from core.vct_responsibility_consolidation import (
+    collect_vct_responsibility_candidates,
+    create_consolidated_vct_responsibility_entries
+)
+
+# Disable SSL warnings (for testing only)
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# Import environment configuration utility
+try:
+    from utils.env_config import get_env_var
+    from utils.config import config
+except ImportError:
+    # Fallback if env_config.py is not available
+    def get_env_var(name, default=None, required=False, as_type=str):
+        value = os.environ.get(name)
+        if value is None:
+            if required:
+                raise ValueError(f"Required environment variable '{name}' is not set")
+            return default
+        return value
+    
+    # Fallback config if utils.config is not available
+    class FallbackConfig:
+        def get(self, key, default=None):
+            return get_env_var(key, default=default)
+    
+    config = FallbackConfig()
+
+# Global variable to track if logging has been initialized
+_logging_initialized = False
+
+def setup_logging():
+    """Set up logging with both file and console handlers using a singleton pattern."""
+    global _logging_initialized
+    
+    # Create logger
+    logger = logging.getLogger("erp_api_integration")
+    
+    # Only set up logging once
+    if not _logging_initialized:
+        # Remove any existing handlers from the logger
+        for handler in logger.handlers[:]:
+            logger.removeHandler(handler)
+        
+        # Also remove handlers from the root logger
+        for handler in logging.root.handlers[:]:
+            logging.root.removeHandler(handler)
+        
+        # Set log level
+        logger.setLevel(logging.INFO)
+        
+        # Disable propagation to parent loggers to prevent duplicate logs
+        logger.propagate = False
+        
+        # Create handlers
+        try:
+            file_handler = logging.FileHandler("erp_api_integration.log")
+            # Create formatter
+            formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            file_handler.setFormatter(formatter)
+            # Add file handler to logger
+            logger.addHandler(file_handler)
+            print("File logging handler initialized successfully")
+        except Exception as e:
+            print(f"Error setting up log file: {str(e)}")
+            print("Falling back to console-only logging")
+        
+        # Always add console handler
+        console_handler = logging.StreamHandler(sys.stdout)
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        console_handler.setFormatter(formatter)
+        logger.addHandler(console_handler)
+        
+        # Mark logging as initialized
+        _logging_initialized = True
+        print("Logging initialized successfully")
+    
+    return logger
+
+# Set up logging
+logger = setup_logging()
+
+# API Configuration from environment variables
+TOKEN_URL = get_env_var(
+    "ERP_TOKEN_URL", 
+    default="https://login.microsoftonline.com/6b83c27c-aa6d-475a-9933-5c34bb008d73/oauth2/v2.0/token"
+)
+
+# Get BC_ENVIRONMENT from centralized configuration
+BC_ENVIRONMENT = config.get("BC_ENVIRONMENT", "Production")
+
+API_URL = get_env_var(
+    "ERP_API_URL", 
+    default=f"https://api.businesscentral.dynamics.com/v2.0/6b83c27c-aa6d-475a-9933-5c34bb008d73/{BC_ENVIRONMENT}/ODataV4/Company('VCT')/PurchaseJournals"
+)
+CLIENT_ID = get_env_var("ERP_CLIENT_ID", required=True)
+CLIENT_SECRET = get_env_var("ERP_CLIENT_SECRET", required=True)
+SCOPE = get_env_var(
+    "ERP_SCOPE", 
+    default="https://api.businesscentral.dynamics.com/.default"
+)
+
+# Fixed values for journal entries
+JOURNAL_TEMPLATE_NAME = "PURCHASES"
+# for Employee expense Journal , we can set journal batch name to GEE
+# JOURNAL_BATCH_NAME = "GEE"
+JOURNAL_BATCH_NAME = "PURCHASE"
+DOCUMENT_TYPE = "Invoice"
+
+
+def get_access_token() -> str:
+    """
+    Get OAuth2 access token using client credentials flow.
+    
+    Returns:
+        str: Access token
+    
+    Raises:
+        Exception: If token acquisition fails
+    """
+    logger.info("Getting access token...")
+    
+    data = {
+        "grant_type": "client_credentials",
+        "client_id": CLIENT_ID,
+        "client_secret": CLIENT_SECRET,
+        "scope": SCOPE
+    }
+    
+    try:
+        # Log the token request data
+        logger.info(f"Token request body: {data}")
+        # Temporarily disable SSL verification for testing
+        response = requests.post(TOKEN_URL, data=data, verify=False)
+        # Log response status and headers
+        logger.info(f"Token response status code: {response.status_code}")
+        logger.info(f"Token response headers: {json.dumps(dict(response.headers), indent=2, cls=DecimalEncoder)}")
+        response.raise_for_status()
+        token_data = response.json()
+        # Log token response (excluding the actual token for security)
+        safe_token_data = token_data.copy()
+        if "access_token" in safe_token_data:
+            safe_token_data["access_token"] = "[REDACTED]"
+        logger.info(f"Token response: {json.dumps(safe_token_data, indent=2, cls=DecimalEncoder)}")
+        logger.info("Access token acquired successfully")
+        return token_data["access_token"]
+    except Exception as e:
+        logger.error(f"Failed to get access token: {str(e)}")
+        raise
+
+
+def transform_currency(company_code: str, currency_code: str, amount: float, decimal_precision: int = 0) -> Tuple[str, float]:
+    """
+    Transform currency code based on company code and convert amount according to business rules.
+    
+    Args:
+        company_code: The company code (e.g., VCT, VCP, etc.)
+        currency_code: The original currency code from the JSON
+        amount: The amount to convert
+        decimal_precision: Number of decimal places for rounding (default: 0)
+        
+    Returns:
+        Tuple[str, float]: The transformed currency code and converted amount
+    """
+    # Define the mapping of company codes to their respective "home" currencies
+    # Updated to align with currency_converter.py
+    company_currency_map = {
+        "VCT": "NTD",
+        "VCP": "PHP",  # Removed "R-" prefix
+        "VCA": "USD",  # Removed "R-" prefix
+        "VCG": "EUR",  # Removed "R-" prefix
+        "VCJ": "JPY"
+    }
+    
+    # Handle "R-" prefix in currency codes
+    normalized_currency = currency_code
+    if currency_code and currency_code.startswith("R-"):
+        normalized_currency = currency_code[2:]  # Remove "R-" prefix
+        logger.info(f"Normalized currency code by removing R- prefix: {currency_code} -> {normalized_currency}")
+    
+    # Special case for XEU with VCG (treat XEU as EUR)
+    if company_code == "VCG" and (normalized_currency == "XEU"):
+        logger.info(f"Transforming currency code for company {company_code}: {currency_code} -> 'R-EUR'")
+        return "R-EUR", amount
+    
+    # If the company code exists in our mapping
+    if company_code in company_currency_map:
+        target_currency = company_currency_map[company_code]
+        
+        # If the currency already matches the target (home currency)
+        if normalized_currency == target_currency:
+            logger.info(f"Transforming currency code for company {company_code}: {currency_code} -> ''")
+            # Use convert_amount to ensure consistent handling of all amounts as Decimal objects
+            # This is important for the currency rounding fix
+            try:
+                converted_amount, success = convert_amount(
+                    amount, 
+                    normalized_currency, 
+                    target_currency, 
+                    company_code=company_code,
+                    decimal_precision=decimal_precision
+                )
+                # Always return empty string when currency matches home currency
+                return "", converted_amount
+            except Exception as e:
+                logger.warning(f"Failed to convert {amount} from {normalized_currency} to {target_currency}: {str(e)}")
+                # Return original currency code and amount if conversion fails
+                return "", amount
+        
+        # If we have a different currency, convert the amount to the target currency
+        elif normalized_currency:
+            try:
+                # Convert amount to target currency, passing company_code and decimal_precision
+                # Use the normalized currency for conversion, not the original with R- prefix
+                converted_amount, success = convert_amount(
+                    amount, 
+                    normalized_currency, 
+                    target_currency, 
+                    company_code=company_code,
+                    decimal_precision=decimal_precision
+                )
+                logger.info(f"Converted {amount} {normalized_currency} to {converted_amount:.2f} {target_currency} for company {company_code}")
+                logger.info(f"Using decimal precision of {decimal_precision} for rounding")
+                
+                # After conversion, the currency is now the home currency, so return empty string
+                return "", converted_amount
+            except Exception as e:
+                logger.warning(f"Failed to convert {amount} from {normalized_currency} to {target_currency}: {str(e)}")
+                # Return original currency code and amount if conversion fails
+                return currency_code, amount
+    
+    # If company code not in mapping or other issues, return original values
+    return currency_code, amount
+
+def transform_currency_code(company_code: str, currency_code: str) -> str:
+    """
+    Transform currency code based on company code according to business rules.
+    
+    Args:
+        company_code: The company code (e.g., VCT, VCP, etc.)
+        currency_code: The original currency code from the JSON
+        
+    Returns:
+        str: The transformed currency code (empty string if it matches home currency,
+             or R-prefixed version for foreign currencies)
+    """
+    # Import company currency mapping from the correct path
+    from company_currency_mapping import COMPANY_HOME_CURRENCY
+    
+    # Add debugging to trace the issue
+    logger.info(f"DEBUG: transform_currency_code called with company_code='{company_code}', currency_code='{currency_code}'")
+    
+    # Handle empty currency code
+    if not currency_code:
+        logger.info(f"Empty currency code provided, returning empty string")
+        return ""
+    
+    # Handle "R-" prefix in currency codes - normalize for comparison
+    normalized_currency = currency_code
+    if currency_code and currency_code.startswith("R-"):
+        normalized_currency = currency_code[2:]  # Remove "R-" prefix
+        logger.info(f"Normalized currency code by removing R- prefix: {currency_code} -> {normalized_currency}")
+    
+    # Get home currency for this company
+    home_currency = COMPANY_HOME_CURRENCY.get(company_code)
+    logger.info(f"DEBUG: Home currency for company {company_code}: {home_currency}")
+    logger.info(f"DEBUG: Normalized currency: {normalized_currency}")
+    logger.info(f"DEBUG: Comparison result: {normalized_currency} == {home_currency} -> {normalized_currency == home_currency}")
+    
+    if not home_currency:
+        logger.warning(f"Unknown company code: {company_code}, returning original currency: {currency_code}")
+        return currency_code
+    
+    # Special case for XEU with VCG (treat XEU as EUR)
+    if company_code == "VCG" and normalized_currency == "XEU":
+        logger.info(f"Transforming XEU to EUR for company {company_code}: {currency_code} -> 'R-EUR'")
+        return "R-EUR"
+    
+    # If the currency matches the home currency, return empty string
+    if normalized_currency == home_currency:
+        logger.info(f"Home currency detected for company {company_code}: {currency_code} -> '' (empty)")
+        return ""
+    
+    # For foreign currencies, add R- prefix if not already present
+    if not currency_code.startswith("R-"):
+        transformed = f"R-{normalized_currency}"
+        logger.info(f"Adding R- prefix to foreign currency for company {company_code}: {currency_code} -> '{transformed}'")
+        return transformed
+    else:
+        # Already has R- prefix, return as is
+        logger.info(f"Currency already has R- prefix for company {company_code}: {currency_code}")
+        return currency_code
+
+
+def convert_date_format(date_str):
+    """
+    Convert date from YYYY/MM/DD to YYYY-MM-DD format with year validation and correction
+    
+    Args:
+        date_str (str): Date string in YYYY/MM/DD format
+        
+    Returns:
+        str: Date string in YYYY-MM-DD format with corrected year if needed
+    """
+    if not date_str:
+        return ""
+    
+    try:
+        # Split by / and rejoin with -
+        parts = date_str.split('/')
+        if len(parts) == 3:
+            year, month, day = parts[0], parts[1], parts[2]
+            
+            # Validate and correct year format
+            corrected_year = validate_and_correct_year(year)
+            if corrected_year != year:
+                logger.warning(f"Corrected invalid year in date: {date_str} -> {corrected_year}/{month}/{day}")
+            
+            # Validate month and day ranges
+            try:
+                month_int = int(month)
+                day_int = int(day)
+                
+                if not (1 <= month_int <= 12):
+                    logger.error(f"Invalid month in date {date_str}: {month}")
+                    return ""
+                
+                if not (1 <= day_int <= 31):
+                    logger.error(f"Invalid day in date {date_str}: {day}")
+                    return ""
+                    
+            except ValueError:
+                logger.error(f"Non-numeric month or day in date {date_str}")
+                return ""
+            
+            return f"{corrected_year}-{month}-{day}"
+        return date_str  # Return original if not in expected format
+    except Exception as e:
+        logger.warning(f"Failed to convert date format for {date_str}: {str(e)}")
+        return date_str  # Return original on error
+
+
+def validate_and_correct_year(year_str):
+    """
+    Validate and correct year format for common issues
+    
+    Args:
+        year_str (str): Year string to validate
+        
+    Returns:
+        str: Corrected year string
+    """
+    if not year_str:
+        return "2025"  # Default to current year
+    
+    try:
+        year_int = int(year_str)
+        
+        # Handle common year format issues
+        if year_int == 1114:
+            # Common issue: 1114 should be 2025 (current year)
+            logger.info(f"Correcting year 1114 to 2025")
+            return "2025"
+        elif year_int == 1113:
+            # Another common pattern: 1113 -> 2024
+            logger.info(f"Correcting year 1113 to 2024")
+            return "2024"
+        elif year_int == 1112:
+            # Another common pattern: 1112 -> 2023
+            logger.info(f"Correcting year 1112 to 2023")
+            return "2023"
+        elif 1100 <= year_int <= 1130:
+            # General pattern: 11XX -> 20XX (where XX is the last two digits + 2000)
+            # This handles cases like 1125 -> 2025, 1124 -> 2024, etc.
+            corrected_year = 2000 + (year_int - 1100)
+            if corrected_year > 2030:  # Cap at reasonable future year
+                corrected_year = 2025  # Default to current year
+            logger.info(f"Correcting year {year_int} to {corrected_year} using pattern 11XX -> 20XX")
+            return str(corrected_year)
+        elif year_int < 1000:
+            # Handle 2-digit years (e.g., 25 -> 2025)
+            if year_int <= 30:
+                corrected_year = 2000 + year_int
+            else:
+                corrected_year = 1900 + year_int
+            logger.info(f"Correcting 2-digit year {year_int} to {corrected_year}")
+            return str(corrected_year)
+        elif 2020 <= year_int <= 2030:
+            # Valid year range, return as is
+            return year_str
+        else:
+            # Year outside reasonable range, default to current year
+            logger.warning(f"Year {year_int} outside reasonable range (2020-2030), defaulting to 2025")
+            return "2025"
+            
+    except ValueError:
+        logger.error(f"Non-numeric year: {year_str}, defaulting to 2025")
+        return "2025"
+
+def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any]:
+    """
+    Create a journal line payload for the API from an entry.
+    
+    Args:
+        entry: The journal entry data
+        entry_type: Either 'debit' or 'credit'
+    
+    Returns:
+        Dict[str, Any]: The journal line payload
+        
+    Note:
+        For debit lines, the transform_currency_code logic is applied to potentially make the currency code empty,
+        but the original amount is kept without conversion, as per business requirements.
+    """
+    # Get the entry data based on type
+    entry_data = entry[entry_type]
+    
+    # Get original amount
+    original_amount = entry_data["amount"] if entry_type == "debit" else -entry_data["amount"]
+    
+    # Get the appropriate description based on entry type
+    if entry_type == "debit":
+        # For debit line, first check main description, then Receipt/Invoice Note(明細) (R column), then フリー２(明細) (Q column)
+        description = entry.get("description", "") or entry_data.get("Receipt/Invoice Note(明細)", "") or entry_data.get("free_field", "")
+        logger.info(f"Debit description sources - Main description: '{entry.get('description', '')}', Receipt/Invoice Note(明細): '{entry_data.get('Receipt/Invoice Note(明細)', '')}', free_field: '{entry_data.get('free_field', '')}'")
+        logger.info(f"Final debit description: '{description}'")
+    else:  # credit
+        # For credit line, use Remarks (備考) (U column)
+        # First check if there's a Remarks field directly in the credit data (for consolidated entries)
+        description = entry_data.get("Remarks", "") or entry_data.get("備考", "")
+        
+        # If no 備考 field in credit data, check if there's a credit_description field in the entry
+        if not description and "credit_description" in entry:
+            description = entry.get("credit_description", "")
+            
+        # If still no description, use the main description field
+        if not description:
+            description = entry.get("description", "")
+            
+        logger.info(f"Credit description source - Remarks (備考): '{description}'")
+        logger.info(f"Final credit description: '{description}'")
+    
+    voucher_no = entry.get("voucher_no", "Unknown")
+    
+    # For consolidated credit entries, just use the description without adding consolidation note
+    if entry_type == "credit" and entry_data.get("consolidated", False):
+        # Use the description as is, without adding the consolidation note
+        logger.info(f"Using description without consolidation note for consolidated entry: {description}")
+    
+    # Removed adding voucher number to description as per requirement
+    # description = f"{voucher_no} - {description}"
+    # logger.info(f"Added voucher number to description: {description}")
+    
+    # Determine Account_Type with robust fallback logic (following cost center pattern)
+    account_type = entry_data.get("gl_account", "")
+    if not account_type:
+        # Apply fallback logic similar to cost center determination
+        if entry_data.get("vendor_code"):
+            account_type = "Vendor"
+            logger.info(f"Inferred Account_Type as 'Vendor' from vendor_code for voucher {entry.get('voucher_no', 'Unknown')}")
+        elif entry_data.get("account"):
+            account_type = "G/L Account"
+            logger.info(f"Inferred Account_Type as 'G/L Account' from account field for voucher {entry.get('voucher_no', 'Unknown')}")
+        else:
+            account_type = "G/L Account"  # Safe default
+            logger.warning(f"Using default Account_Type 'G/L Account' for voucher {entry.get('voucher_no', 'Unknown')} - no account indicators found")
+    
+    # Determine Account_No based on the account type (MOVED UP - needed for ShortcutDimCode4 logic)
+    # For Vendor accounts, use vendor_code
+    # For other accounts, use the account field
+    if account_type == "Vendor":
+        account_no = entry_data.get("vendor_code", "")
+        
+        # NEW CODE: Handle V-VC00048 mapping for non-VCT cost centers
+        if account_no == "V-VC00048":
+            # Extract cost center from department code (first 3 characters)
+            department = entry_data.get("department", "")
+            cost_center = department[:3] if department else ""
+            
+            # If cost center is not VCT, change vendor code to VCT
+            if cost_center and cost_center != "VCT":
+                logger.info(f"Mapping vendor V-VC00048 to VCT for non-VCT cost center {cost_center} - Voucher: {entry.get('voucher_no', 'Unknown')}")
+                account_no = "VCT"
+    else:
+        account_no = entry_data.get("account", "")
+    
+    # Determine ShortcutDimCode4 based on account type and source of account_no
+    # NEW: Special case for specific debit accounts (HIGHEST PRIORITY)
+    if entry_type == "debit" and entry_data.get("account") in ["72600-10", "72600-30"]:
+        shortcut_dim_code4 = "N/A"
+        logger.info(f"Setting ShortcutDimCode4 to 'N/A' for debit account {entry_data.get('account')} - Voucher: {entry.get('voucher_no', 'Unknown')}")
+    # NEW: V-VC00048 company credit card (PRIORITY 2)
+    elif account_no == "V-VC00048":
+        shortcut_dim_code4 = ""
+        logger.info(f"Setting ShortcutDimCode4 to empty for company credit card V-VC00048 - Voucher: {entry.get('voucher_no', 'Unknown')}")
+    # EXISTING: Vendor account logic
+    elif entry_data.get("gl_account", "") == "Vendor" or entry.get("credit", {}).get("gl_account", "") == "Vendor":
+        # For Vendor accounts or entries with Vendor credit, check the source of account_no
+        # For debit lines of vendor payments, we need to check the credit side's account_source
+        if entry_type == "debit" and entry.get("credit", {}).get("account_source") == "vendor_code":
+            # If the credit side's account_no comes from column O (支払先CD), set ShortcutDimCode4 to empty
+            shortcut_dim_code4 = ""
+            logger.info(f"Setting ShortcutDimCode4 to empty for debit line of Vendor payment (支払先CD) - Voucher: {entry.get('voucher_no', 'Unknown')}")
+        elif entry_type == "credit" and entry_data.get("account_source") == "vendor_code":
+            # If the credit side's account_no comes from column O (支払先CD), set ShortcutDimCode4 to empty
+            shortcut_dim_code4 = ""
+            logger.info(f"Setting ShortcutDimCode4 to empty for Vendor payment (支払先CD) - Voucher: {entry.get('voucher_no', 'Unknown')}")
+        else:
+            # If account_no comes from column N (申請者CD/支払先CD), use applicant_code
+            shortcut_dim_code4 = entry_data.get("applicant_code", "")
+            logger.info(f"Using applicant_code for ShortcutDimCode4 for Employee payment (申請者CD/支払先CD) - Voucher: {entry.get('voucher_no', 'Unknown')}")
+    # EXISTING: Non-vendor account logic
+    else:
+        # For non-Vendor accounts, keep using applicant_code
+        shortcut_dim_code4 = entry_data.get("applicant_code", "")
+    
+    # Ensure shortcut_dim_code4 is not too long (max 100 chars)
+    if len(shortcut_dim_code4) > 100:
+        shortcut_dim_code4 = shortcut_dim_code4[:100]
+        logger.warning(f"Truncated ShortcutDimCode4 to 100 characters: {shortcut_dim_code4}")
+    
+    # Determine Shortcut_Dimension_2_Code based on account type
+    if entry_data.get("gl_account", "") == "Vendor":
+        # Get the original department_code
+        original_dept_code = entry_data.get("department_code", "")
+        
+        # Transform department_code for Vendor accounts
+        if original_dept_code and len(original_dept_code) >= 3:
+            # Take first 3 characters and append .9999
+            shortcut_dim_2_code = original_dept_code[:3] + ".9999"
+        else:
+            # Fallback if department_code is missing or too short
+            shortcut_dim_2_code = original_dept_code
+    else:
+        shortcut_dim_2_code = entry_data.get("department", "")
+    
+    # Ensure account_no is not too long (max 100 chars)
+    if len(account_no) > 100:
+        account_no = account_no[:100]
+        logger.warning(f"Truncated Account_No to 100 characters: {account_no}")
+    
+    # Ensure description is not too long
+    if len(description) > 100:
+        description = description[:100]
+        logger.warning(f"Truncated Description to 100 characters: {description}")
+    
+    # Get External_Document_No from the entry or fallback to voucher_no
+    external_document_no = entry.get("External_Document_No", "") or entry.get("voucher_no", "")
+    # Truncate External_Document_No to 35 characters (Business Central API limit)
+    if len(external_document_no) > 35:
+        original_external_document_no = external_document_no
+        external_document_no = external_document_no[:35]
+        logger.warning(
+            f"Truncated External_Document_No from {len(original_external_document_no)} to 35 characters: "
+            f"'{original_external_document_no}' -> '{external_document_no}'"
+        )
+    
+    # Get Document_No from voucher_no
+    document_no = entry.get("voucher_no", "")
+    if len(document_no) > 100:
+        document_no = document_no[:100]
+        logger.warning(f"Truncated Document_No to 100 characters: {document_no}")
+    
+    # Get Document_Date and convert format
+    document_date = entry.get("Document_Date", "")
+    formatted_document_date = convert_date_format(document_date)
+    
+    # Determine the company code from the department field
+    department = entry_data.get("department", "")
+    company_code = department[:3] if department else ""
+    
+    # Fallback logic if company_code is empty
+    if not company_code:
+        # Try to get company code from other sources
+        # 1. Check if there's a company field directly
+        company_code = entry_data.get("company", "")
+        
+        # 2. Look for actual company codes in voucher number (not transaction type prefixes)
+        if not company_code:
+            voucher_no = entry.get("voucher_no", "")
+            if voucher_no:
+                # Look for actual company codes anywhere in the voucher number
+                # This avoids hardcoded assumptions about transaction prefixes like VPA, OBA, APA
+                for code in ["VCT", "VCP", "VCA", "VCG", "VCJ"]:
+                    if code in voucher_no:
+                        company_code = code
+                        logger.info(f"Found company code '{company_code}' in voucher number for voucher: {entry.get('voucher_no', 'Unknown')}")
+                        break
+        
+        # 3. Default fallback to VCT if still empty
+        if not company_code:
+            company_code = "VCT"
+            logger.warning(f"No company code found in department field or voucher number. Defaulting to VCT for voucher: {entry.get('voucher_no', 'Unknown')}")
+    
+    # Define the mapping of company codes to their respective "home" currencies
+    # Updated to align with currency_converter.py
+    company_currency_map = {
+        "VCT": "NTD",
+        "VCP": "PHP",  # Removed "R-" prefix
+        "VCA": "USD",  # Removed "R-" prefix
+        "VCG": "EUR",  # Removed "R-" prefix
+        "VCJ": "JPY"
+    }
+    
+    # Check if we have original_currency and original_amount fields for debit lines
+    if entry_type == "debit" and "original_currency" in entry_data and "original_amount" in entry_data:
+        # Use the true original values before any conversion
+        currency_to_use = entry_data.get("original_currency", "")
+        amount_to_use = entry_data.get("original_amount", original_amount)
+        
+        # Apply transform_currency_code to the original currency
+        # This will handle all special cases consistently with our updated logic
+        transformed_currency = transform_currency_code(company_code, currency_to_use)
+        logger.info(
+            f"Applied transform_currency_code for debit line - Voucher: {entry.get('voucher_no', 'Unknown')}, "
+            f"Company: {company_code}, Original Currency: {currency_to_use}, Transformed Currency: {transformed_currency}"
+        )
+        
+        converted_amount = amount_to_use  # Use the original amount
+        
+        logger.info(
+            f"Using original currency and amount for debit line - Voucher: {entry.get('voucher_no', 'Unknown')}, "
+            f"Original Currency: {currency_to_use}, Original Amount: {amount_to_use}, "
+            f"Transformed Currency: {transformed_currency}"
+        )
+    else:
+        # Get the currency code from the entry data (may be already converted)
+        currency_to_use = entry_data.get("currency", "")
+        
+        # For debit lines without original_currency/original_amount, use existing logic
+        if entry_type == "debit":
+            # For debit lines, use transform_currency_code to preserve foreign currency codes with R- prefix
+            transformed_currency = transform_currency_code(company_code, currency_to_use)
+            # For debit lines, we still need to convert the amount but keep the original sign
+            _, converted_amount = transform_currency(
+                company_code, 
+                currency_to_use, 
+                abs(original_amount)
+            )
+            # Ensure positive amount for debit
+            converted_amount = abs(converted_amount)
+        else:
+            # Special handling for overseas vendors (V-VC prefix)
+            # As per requirement: For VCT vendors with V-VC prefix (overseas vendors),
+            # we must preserve the original currency and amount without conversion
+            if entry_type == "credit" and entry_data.get("gl_account") == "Vendor" and entry_data.get("vendor_code", "").startswith("V-VC"):
+                # Keep original currency and amount for overseas vendors
+                vendor_code = entry_data.get("vendor_code", "")
+                logger.info(f"Overseas vendor detected ({vendor_code}): Keeping original currency {currency_to_use} and amount {original_amount}")
+                
+                # Special case: For VCT company and NTD currency, set currency code to empty string
+                if company_code == "VCT" and currency_to_use == "NTD":
+                    logger.info(f"Overseas vendor with NTD currency in VCT company: Setting currency code to empty string")
+                    transformed_currency = ""
+                else:
+                    # Apply transform_currency_code to non-NTD currencies for overseas vendors
+                    transformed_currency = transform_currency_code(company_code, currency_to_use)
+                    logger.info(f"Applied transform_currency_code for overseas vendor: {transformed_currency}")
+                    
+                converted_amount = original_amount  # Keep the original sign (negative for credit)
+            else:
+                # For non-overseas vendors, use the existing transformation logic
+                # For credit lines, we need to use transform_currency_code to preserve foreign currency codes
+                if entry_type == "credit":
+                    # Use transform_currency_code to preserve foreign currency codes with R- prefix
+                    transformed_currency = transform_currency_code(company_code, currency_to_use)
+                    # For credit lines, we still need to convert the amount but keep the original sign
+                    _, converted_amount = transform_currency(
+                        company_code, 
+                        currency_to_use, 
+                        abs(original_amount)
+                    )
+                    # Apply negative sign for credit
+                    converted_amount = -converted_amount
+                else:
+                    # For debit lines, use the full currency transformation
+                    transformed_currency, converted_amount = transform_currency(
+                        company_code, 
+                        currency_to_use, 
+                        abs(original_amount)
+                    )
+                    # Ensure positive amount for debit
+                    converted_amount = abs(converted_amount)
+    
+    # Use the final amount
+    amount = converted_amount
+    
+    # Determine intercompany code for ShortcutDimCode3
+    intercompany_code = ""
+
+    # For debit lines with account 18600-10, set intercompany code to the original cost center
+    if entry_type == "debit" and account_no == "18600-10":
+        # Extract cost center from department code (first 3 characters)
+        department = entry_data.get("department", "")
+        intercompany_code = department[:3] if department else ""
+        logger.info(f"Setting intercompany code to {intercompany_code} for debit line with account 18600-10 - Voucher: {entry.get('voucher_no', 'Unknown')}")
+
+    # For credit lines, check if cost center is not VCT
+    elif entry_type == "credit":
+        # Get vendor code
+        vendor_code = entry_data.get("vendor_code", "")
+        
+        # Extract cost center from department code (first 3 characters)
+        department = entry_data.get("department", "")
+        cost_center = department[:3] if department else ""
+        
+        # If cost center is not VCT, set intercompany code to "VCT"
+        if cost_center and cost_center != "VCT":
+            intercompany_code = "VCT"
+            logger.info(f"Setting intercompany code to VCT for credit line - Vendor: {vendor_code}, Cost center: {cost_center} - Voucher: {entry.get('voucher_no', 'Unknown')}")
+
+    # Create the journal line payload
+    journal_line = {
+        "Journal_Template_Name": JOURNAL_TEMPLATE_NAME,
+        "Journal_Batch_Name": JOURNAL_BATCH_NAME,
+        "Document_Type": DOCUMENT_TYPE,
+        "External_Document_No": external_document_no,
+        "Document_No": document_no,
+        "Document_Date": formatted_document_date,
+        "Account_Type": account_type,
+        "Account_No": account_no,
+        "Description": description,
+        "Currency_Code": transformed_currency,
+        "Amount": amount,
+        "Shortcut_Dimension_1_Code": company_code,
+        "Shortcut_Dimension_2_Code": shortcut_dim_2_code,
+        "ShortcutDimCode3": intercompany_code,
+        "ShortcutDimCode4": shortcut_dim_code4,
+        "ShortcutDimCode5": "",
+        "ShortcutDimCode6": "",
+        "ShortcutDimCode7": "",
+        "ShortcutDimCode8": "",
+        "ShortcutDimCode9": "",
+        "ShortcutDimCode10": "",
+        "ShortcutDimCode11": "",
+        "ShortcutDimCode12": "",
+        "ShortcutDimCode13": "",
+        "ShortcutDimCode14": "",
+        "ShortcutDimCode15": ""
+    }
+    
+    # Check if this is a debit entry with department VCT.1342G
+    if entry_type == "debit" and entry_data.get("department") == "VCT.1342G":
+        journal_line["ShortcutDimCode14"] = "VCT_TW0001"
+        logger.info(f"Set ShortcutDimCode14 to VCT_TW0001 for debit entry with department VCT.1342G - Voucher: {entry.get('voucher_no', 'Unknown')}")
+    
+    return journal_line
+
+
+# The apply_currency_code_rules function has been removed as part of the refactoring
+# Currency code rules are now handled in exchange_rate_query.py
+
+
+class RateLimiter:
+    """
+    Rate limiter class to manage API call timing and implement exponential backoff.
+    """
+    def __init__(self, base_delay=1.0, max_delay=10.0, backoff_factor=2.0):
+        """
+        Initialize the rate limiter.
+        
+        Args:
+            base_delay: Base delay in seconds between API calls
+            max_delay: Maximum delay in seconds between API calls
+            backoff_factor: Factor to increase delay on failures
+        """
+        self.base_delay = base_delay
+        self.max_delay = max_delay
+        self.backoff_factor = backoff_factor
+        self.last_request_time = 0
+        self.consecutive_failures = 0
+    
+    def wait_before_request(self):
+        """
+        Wait appropriate time before making a request.
+        """
+        current_time = time.time()
+        elapsed = current_time - self.last_request_time
+        
+        # Calculate delay based on consecutive failures (exponential backoff)
+        if self.consecutive_failures > 0:
+            delay = min(self.base_delay * (self.backoff_factor ** (self.consecutive_failures - 1)), self.max_delay)
+        else:
+            delay = self.base_delay
+            
+        # If not enough time has passed since last request, wait
+        if elapsed < delay:
+            wait_time = delay - elapsed
+            logger.info(f"Rate limiting: Waiting {wait_time:.2f} seconds before next API call")
+            time.sleep(wait_time)
+        
+        # Update last request time
+        self.last_request_time = time.time()
+    
+    def record_success(self):
+        """
+        Record a successful API call.
+        """
+        self.consecutive_failures = 0
+    
+    def record_failure(self):
+        """
+        Record a failed API call.
+        """
+        self.consecutive_failures += 1
+        logger.info(f"Rate limiting: Recorded failure. Consecutive failures: {self.consecutive_failures}")
+
+
+def analyze_error_response(response_data):
+    """
+    Analyze error response to identify common issues.
+    
+    Args:
+        response_data: The error response data from the API
+        
+    Returns:
+        str: Analysis of the error
+    """
+    if not response_data or not isinstance(response_data, dict):
+        return "Unknown error format"
+        
+    error = response_data.get("error", {})
+    error_code = error.get("code", "")
+    error_message = error.get("message", "")
+    
+    if "validation" in error_message.lower():
+        return f"Validation error: {error_message}"
+    elif "permission" in error_message.lower():
+        return f"Permission error: {error_message}"
+    elif "timeout" in error_message.lower():
+        return f"Timeout error: {error_message}"
+    elif "rate" in error_message.lower() and "limit" in error_message.lower():
+        return f"Rate limiting error: {error_message}"
+    elif "duplicate" in error_message.lower():
+        return f"Duplicate entry error: {error_message}"
+    elif "constraint" in error_message.lower():
+        return f"Constraint violation: {error_message}"
+    else:
+        return f"Other error ({error_code}): {error_message}"
+
+def post_journal_line(journal_line: Dict[str, Any], access_token: str, 
+                     rate_limiter: RateLimiter = None, max_retries: int = 3) -> Tuple[bool, Dict[str, Any]]:
+    """
+    Post a journal line to the ERP API with rate limiting and retry logic.
+    
+    Args:
+        journal_line: The journal line payload
+        access_token: OAuth2 access token
+        rate_limiter: RateLimiter instance for managing API call timing
+        max_retries: Maximum number of retry attempts for failed API calls
+    
+    Returns:
+        Tuple[bool, Dict[str, Any]]: Success status and response data
+    """
+    # Ensure the description field is populated
+    if not journal_line.get("Description"):
+        # Get the document number for logging
+        doc_no = journal_line.get("Document_No", "Unknown")
+        logger.warning(f"Description field is empty for Document_No: {doc_no}. Setting default description.")
+        
+        # Set a default description based on the document number
+        journal_line["Description"] = f"Transaction for {doc_no}"
+    
+    # Currency code rules application is now skipped as it's handled in exchange_rate_query.py
+    logger.info(f"Currency code rules application skipped as per refactoring")
+    
+    # Extract company code from Shortcut_Dimension_1_Code
+    shortcut_dim_code = journal_line.get("Shortcut_Dimension_1_Code", "")
+    
+    # Default to the environment variable if no code is found
+    api_url = API_URL
+    
+    # If we have a shortcut dimension code, extract the company code
+    if shortcut_dim_code:
+        # If the code contains a period, extract only the part before the period
+        company_code = shortcut_dim_code.split('.')[0] if '.' in shortcut_dim_code else shortcut_dim_code
+        
+        if company_code:
+            # Construct the API URL with the company code using BC_ENVIRONMENT
+            base_url = f"https://api.businesscentral.dynamics.com/v2.0/6b83c27c-aa6d-475a-9933-5c34bb008d73/{BC_ENVIRONMENT}/ODataV4/Company"
+            api_url = f"{base_url}('{company_code}')/PurchaseJournals"
+            logger.info(f"Using company-specific API URL for {company_code}: {api_url}")
+    
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json"
+    }
+    
+    # Create a default rate limiter if none provided
+    if rate_limiter is None:
+        rate_limiter = RateLimiter()
+    
+    retry_count = 0
+    
+    # Log detailed information about the journal line
+    logger.info(f"Full journal line details:")
+    logger.info(f"Document No: {journal_line.get('Document_No')}")
+    logger.info(f"External Document No: {journal_line.get('External_Document_No')}")
+    logger.info(f"Account Type: {journal_line.get('Account_Type')}")
+    logger.info(f"Account No: {journal_line.get('Account_No')}")
+    logger.info(f"Description: {journal_line.get('Description')}")
+    logger.info(f"Currency Code: {journal_line.get('Currency_Code')}")
+    logger.info(f"Amount: {journal_line.get('Amount')}")
+    logger.info(f"Dimensions: {journal_line.get('Shortcut_Dimension_1_Code')}, {journal_line.get('Shortcut_Dimension_2_Code')}")
+    
+    while retry_count <= max_retries:
+        # Wait before making the request
+        rate_limiter.wait_before_request()
+        
+        try:
+            # Log the full request body for debugging
+            logger.info(f"Full request payload: {json.dumps(journal_line, indent=2, cls=DecimalEncoder)}")
+            
+            # Log headers (excluding Authorization header for security)
+            safe_headers = headers.copy()
+            if "Authorization" in safe_headers:
+                safe_headers["Authorization"] = "Bearer [REDACTED]"
+            logger.info(f"Request headers: {json.dumps(safe_headers, indent=2, cls=DecimalEncoder)}")
+            
+            # Temporarily disable SSL verification for testing
+            response = requests.post(api_url, json=journal_line, headers=headers, verify=False)
+            
+            # Log response status and headers
+            logger.info(f"Response status code: {response.status_code}")
+            logger.info(f"Response headers: {json.dumps(dict(response.headers), indent=2, cls=DecimalEncoder)}")
+            
+            # Check for rate limit response (usually 429 Too Many Requests)
+            if response.status_code == 429:
+                logger.warning("Rate limit hit. Backing off...")
+                rate_limiter.record_failure()
+                retry_count += 1
+                continue
+            
+            # For other errors, raise the exception
+            response.raise_for_status()
+            
+            # Process successful response
+            response_data = response.json()
+            # Log the response data
+            logger.info(f"API response body: {json.dumps(response_data, indent=2, cls=DecimalEncoder)}")
+            
+            # Record success and return
+            rate_limiter.record_success()
+            return True, response_data
+            
+        except requests.exceptions.HTTPError as e:
+            logger.error(f"HTTP error: {str(e)}")
+            
+            # For 5xx errors (server errors), retry
+            if 500 <= response.status_code < 600:
+                logger.warning(f"Server error {response.status_code}. Retrying...")
+                rate_limiter.record_failure()
+                retry_count += 1
+            else:
+                # For other HTTP errors, don't retry
+                try:
+                    error_data = response.json()
+                    logger.error(f"API error response details: {json.dumps(error_data, indent=2)}")
+                    
+                    # Extract specific error messages if available
+                    if "error" in error_data:
+                        logger.error(f"Error message: {error_data.get('error', {}).get('message', 'Unknown error')}")
+                    
+                    # Analyze the error response
+                    error_analysis = analyze_error_response(error_data)
+                    logger.error(f"Error analysis: {error_analysis}")
+                    
+                    return False, error_data
+                except Exception as parse_error:
+                    logger.error(f"Failed to parse error response. Status code: {response.status_code}, Response text: {response.text}")
+                    logger.error(f"Parse error: {str(parse_error)}")
+                    return False, {"error": str(e), "status_code": response.status_code, "response_text": response.text}
+                    
+        except Exception as e:
+            logger.error(f"Error posting journal line: {str(e)}")
+            logger.error(f"Exception type: {type(e).__name__}")
+            logger.error(f"Exception details: {str(e)}")
+            rate_limiter.record_failure()
+            retry_count += 1
+            
+        # If we've reached max retries, give up
+        if retry_count > max_retries:
+            logger.error(f"Max retries ({max_retries}) exceeded. Giving up.")
+            return False, {"error": f"Failed after {max_retries} attempts"}
+    
+    # If we exit the loop without returning, it means we've exceeded max retries
+    logger.error(f"Max retries ({max_retries}) exceeded. Giving up.")
+    return False, {"error": f"Failed after {max_retries} attempts"}
+
+
+def verify_balanced_amounts(entry_or_entries, tolerance=0.01):
+    """
+    Verify that debit and credit amounts balance after currency conversion.
+    
+    Args:
+        entry_or_entries: Single entry dict or list of entry dicts
+        tolerance: Acceptable difference between debit and credit amounts
+        
+    Returns:
+        tuple: (is_balanced, difference, debit_total, credit_total)
+    """
+    entries = [entry_or_entries] if isinstance(entry_or_entries, dict) else entry_or_entries
+    
+    # Calculate total debit and credit amounts after currency conversion
+    debit_total = 0
+    credit_total = 0
+    
+    for entry in entries:
+        # Get company code from debit department
+        debit_dept = entry.get("debit", {}).get("department", "")
+        company_code = debit_dept[:3] if debit_dept else ""
+        
+        # Get debit amount and currency
+        debit_amount = entry.get("debit", {}).get("amount", 0)
+        debit_currency = entry.get("debit", {}).get("currency", "")
+        
+        # Get credit amount and currency
+        credit_amount = entry.get("credit", {}).get("amount", 0)
+        credit_currency = entry.get("credit", {}).get("currency", "")
+        
+        # Apply currency transformation to get the final amounts
+        _, converted_debit = transform_currency(company_code, debit_currency, debit_amount)
+        _, converted_credit = transform_currency(company_code, credit_currency, credit_amount)
+        
+        debit_total += converted_debit
+        credit_total += converted_credit
+    
+    # Calculate difference (ensure both values are the same type)
+    difference = abs(float(debit_total) - float(credit_total))
+    
+    # Check if within tolerance
+    is_balanced = difference <= tolerance
+    
+    return is_balanced, difference, debit_total, credit_total
+
+
+def generate_unbalanced_entries_report(unbalanced_entries, output_file):
+    """
+    Generate a report of unbalanced entries.
+    
+    Args:
+        unbalanced_entries: List of dictionaries containing unbalanced entry details
+        output_file: Path to the output report file
+    """
+    with open(output_file, 'w') as f:
+        f.write("# Unbalanced Entries Report\n\n")
+        f.write("| Voucher No | Vendor Code | Debit Total | Credit Total | Difference |\n")
+        f.write("|------------|-------------|-------------|--------------|------------|\n")
+        
+        for entry in unbalanced_entries:
+            f.write(f"| {entry['voucher_no']} | {entry['vendor_code']} | " 
+                   f"{entry['debit_total']:.2f} | {entry['credit_total']:.2f} | " 
+                   f"{entry['difference']:.2f} |\n")
+        
+        f.write(f"\n\nTotal unbalanced entries: {len(unbalanced_entries)}\n")
+        f.write(f"\nNote: This report includes entries where the difference between debit and credit amounts exceeds the tolerance of 0.01.\n")
+
+
+def generate_currency_modification_report(entries: List[Dict[str, Any]], output_file: str) -> List[Dict[str, Any]]:
+    """
+    Generate a report of all currency code modifications.
+    
+    Args:
+        entries: List of journal entries
+        output_file: Path to the output report file
+    
+    Returns:
+        List[Dict[str, Any]]: List of modifications made
+    """
+    modifications = []
+    
+    for entry in entries:
+        voucher_no = entry.get("voucher_no", "Unknown")
+        
+        # Check debit line
+        debit_dept = entry.get("debit", {}).get("department", "")
+        debit_company = debit_dept[:3] if debit_dept else ""
+        debit_currency = entry.get("debit", {}).get("currency", "")
+        
+        if debit_company and debit_currency:
+            transformed_debit = transform_currency_code(debit_company, debit_currency)
+            if transformed_debit != debit_currency:
+                modifications.append({
+                    "voucher_no": voucher_no,
+                    "line_type": "debit",
+                    "company_code": debit_company,
+                    "original_currency": debit_currency,
+                    "transformed_currency": transformed_debit
+                })
+        
+        # Check credit line
+        credit_dept = entry.get("credit", {}).get("department", "")
+        credit_company = credit_dept[:3] if credit_dept else ""
+        credit_currency = entry.get("credit", {}).get("currency", "")
+        
+        if credit_company and credit_currency:
+            transformed_credit = transform_currency_code(credit_company, credit_currency)
+            if transformed_credit != credit_currency:
+                modifications.append({
+                    "voucher_no": voucher_no,
+                    "line_type": "credit",
+                    "company_code": credit_company,
+                    "original_currency": credit_currency,
+                    "transformed_currency": transformed_credit
+                })
+    
+    # Write the report to a markdown file
+    with open(output_file, 'w') as f:
+        f.write("# Currency Modification Report\n\n")
+        f.write("| Voucher No | Line Type | Company Code | Original Currency | Transformed Currency |\n")
+        f.write("|------------|-----------|--------------|-------------------|---------------------|\n")
+        
+        for mod in modifications:
+            f.write(f"| {mod['voucher_no']} | {mod['line_type']} | {mod['company_code']} | {mod['original_currency']} | {mod['transformed_currency']} |\n")
+        
+        f.write(f"\n\nTotal modifications: {len(modifications)}\n")
+        f.write(f"\nNote: This report includes all currency code transformations for both debit and credit lines.\n")
+    
+    logger.info(f"Currency modification report generated: {output_file}")
+    return modifications
+
+
+def create_vct_responsibility_entries(entry: Dict[str, Any], access_token: str, rate_limiter: RateLimiter, 
+                                     used_doc_numbers: Dict[str, int] = None, max_retries: int = 3) -> Tuple[int, int]:
+    """
+    Create additional debit and credit lines in VCT to record the responsibility of expense for V-VC00048 vendor.
+    
+    Args:
+        entry: The original journal entry
+        access_token: OAuth2 access token
+        rate_limiter: RateLimiter instance for managing API call timing
+        used_doc_numbers: Dictionary to track used document numbers and their counters
+        max_retries: Maximum number of retry attempts for failed API calls
+    
+    Returns:
+        Tuple[int, int]: Count of successful and failed entries
+    """
+    # Initialize used_doc_numbers if not provided
+    if used_doc_numbers is None:
+        used_doc_numbers = {}
+        logger.warning("used_doc_numbers was None, initializing new dictionary. This may cause document number gaps.")
+    success_count = 0
+    failure_count = 0
+    
+    # Extract necessary information from the original entry
+    voucher_no = entry.get('voucher_no', 'Unknown')
+    external_document_no = entry.get('External_Document_No', voucher_no)
+    document_date = entry.get('Document_Date', '')
+    
+    # Get the original department from the credit entry
+    original_department = entry.get('credit', {}).get('department', '')
+    
+    # Get the credit data
+    credit_data = entry.get('credit', {})
+    
+    # Get the original description from the credit entry
+    # First check the main description field
+    original_description = entry.get("description", "")
+    
+    # If no main description, check credit_description field
+    if not original_description and "credit_description" in entry:
+        original_description = entry.get("credit_description", "")
+    
+    # If still no description, check Remarks and 備考 fields
+    if not original_description:
+        original_description = credit_data.get("Remarks", "") or credit_data.get("備考", "")
+    
+    # If still no description, check Receipt/Invoice Note(明細) and free_field
+    if not original_description:
+        if credit_data.get("Receipt/Invoice Note(明細)"):
+            original_description = credit_data.get("Receipt/Invoice Note(明細)")
+        elif credit_data.get("free_field"):
+            original_description = credit_data.get("free_field")
+    
+    logger.info(f"VCT responsibility description sources - Remarks: '{credit_data.get('Remarks', '')}', 備考: '{credit_data.get('備考', '')}', " +
+               f"credit_description: '{entry.get('credit_description', '')}', main description: '{entry.get('description', '')}'")
+    logger.info(f"Final VCT responsibility description: '{original_description}'")
+    
+    # Get the original amount and currency from the credit entry
+    original_amount = entry.get('credit', {}).get('amount', 0)
+    original_currency = entry.get('credit', {}).get('currency', '')
+    
+    # Create the description with department prefix
+    vct_description = f"{original_department} {original_description}"
+    
+    # Ensure description is not too long
+    if len(vct_description) > 100:
+        vct_description = vct_description[:100]
+        logger.warning(f"Truncated VCT responsibility description to 100 characters: {vct_description}")
+    
+    logger.info(f"Creating VCT responsibility entries for voucher {voucher_no} - Original department: {original_department}")
+    
+    # Extract cost center from original department (first 3 characters)
+    original_cost_center = original_department[:3] if original_department else ""
+    
+    # Check if this document number has been used before and append a suffix if needed
+    original_doc_no = voucher_no
+    
+    # Log the document number being processed
+    logger.info(f"Processing document number for VCT responsibility entry: {original_doc_no}")
+    
+    # Always check if this document number is in the tracking dictionary
+    if original_doc_no not in used_doc_numbers:
+        used_doc_numbers[original_doc_no] = -1
+        logger.info(f"Initializing counter for document number {original_doc_no}")
+    
+    # Always increment for VCT responsibility entries
+    used_doc_numbers[original_doc_no] += 1
+    modified_doc_no = f"{original_doc_no}-{used_doc_numbers[original_doc_no]}"
+    logger.info(f"Using modified document number {modified_doc_no} for VCT responsibility entry")
+    
+    # Create the debit line for VCT
+    debit_line = {
+        "Journal_Template_Name": JOURNAL_TEMPLATE_NAME,
+        "Journal_Batch_Name": JOURNAL_BATCH_NAME,
+        "Document_Type": DOCUMENT_TYPE,
+        "External_Document_No": external_document_no,
+        "Document_No": modified_doc_no,
+        "Document_Date": convert_date_format(document_date),
+        "Account_Type": "G/L Account",
+        "Account_No": "18600-10",  # Fixed account number
+        "Description": vct_description,
+        "Currency_Code": original_currency,
+        "Amount": original_amount,
+        "Shortcut_Dimension_1_Code": "VCT",
+        "Shortcut_Dimension_2_Code": "VCT.9999",  # Fixed department code
+        "ShortcutDimCode3": original_cost_center,  # Set intercompany code to original cost center
+        "ShortcutDimCode4": "",
+        "ShortcutDimCode5": "",
+        "ShortcutDimCode6": "",
+        "ShortcutDimCode7": "",
+        "ShortcutDimCode8": "",
+        "ShortcutDimCode9": "",
+        "ShortcutDimCode10": "",
+        "ShortcutDimCode11": "",
+        "ShortcutDimCode12": "",
+        "ShortcutDimCode13": "",
+        "ShortcutDimCode14": "",
+        "ShortcutDimCode15": ""
+    }
+    
+    logger.info(f"Setting intercompany code to {original_cost_center} for VCT responsibility debit line - Voucher: {voucher_no}")
+    
+    # Create the credit line for VCT
+    credit_line = {
+        "Journal_Template_Name": JOURNAL_TEMPLATE_NAME,
+        "Journal_Batch_Name": JOURNAL_BATCH_NAME,
+        "Document_Type": DOCUMENT_TYPE,
+        "External_Document_No": external_document_no,
+        "Document_No": modified_doc_no,
+        "Document_Date": convert_date_format(document_date),
+        "Account_Type": "Vendor",
+        "Account_No": "V-VC00048",  # Fixed vendor code
+        "Description": vct_description,
+        "Currency_Code": original_currency,
+        "Amount": -original_amount,  # Negative for credit
+        "Shortcut_Dimension_1_Code": "VCT",
+        "Shortcut_Dimension_2_Code": "VCT.9999",  # Fixed department code
+        "ShortcutDimCode3": "",  # Leave intercompany code empty for credit line
+        "ShortcutDimCode4": "",
+        "ShortcutDimCode5": "",
+        "ShortcutDimCode6": "",
+        "ShortcutDimCode7": "",
+        "ShortcutDimCode8": "",
+        "ShortcutDimCode9": "",
+        "ShortcutDimCode10": "",
+        "ShortcutDimCode11": "",
+        "ShortcutDimCode12": "",
+        "ShortcutDimCode13": "",
+        "ShortcutDimCode14": "",
+        "ShortcutDimCode15": ""
+    }
+    
+    logger.info(f"Setting intercompany code to empty for VCT responsibility credit line - Voucher: {voucher_no}")
+    
+    # Post the debit line
+    logger.info(f"Posting VCT responsibility debit line for voucher {voucher_no}")
+    debit_line_copy = json.loads(json.dumps(debit_line, cls=DecimalEncoder))
+    debit_success, debit_response = post_journal_line(debit_line_copy, access_token, rate_limiter, max_retries)
+    
+    if debit_success:
+        logger.info(f"Successfully posted VCT responsibility debit line for voucher {voucher_no}")
+        success_count += 1
+    else:
+        logger.error(f"Failed to post VCT responsibility debit line for voucher {voucher_no}")
+        failure_count += 1
+    
+    # Post the credit line
+    logger.info(f"Posting VCT responsibility credit line for voucher {voucher_no}")
+    credit_line_copy = json.loads(json.dumps(credit_line, cls=DecimalEncoder))
+    credit_success, credit_response = post_journal_line(credit_line_copy, access_token, rate_limiter, max_retries)
+    
+    if credit_success:
+        logger.info(f"Successfully posted VCT responsibility credit line for voucher {voucher_no}")
+        success_count += 1
+    else:
+        logger.error(f"Failed to post VCT responsibility credit line for voucher {voucher_no}")
+        failure_count += 1
+    
+    return success_count, failure_count
+
+def process_entries(entries: List[Dict[str, Any]], access_token: str, balance_tolerance: float = 0.01, 
+                   skip_unbalanced: bool = False, unbalanced_report_file: str = "unbalanced_entries_report.md",
+                   base_delay: float = 5.0, max_delay: float = 10.0, backoff_factor: float = 2.0, 
+                   max_retries: int = 3) -> Tuple[int, int, int, int]:
+    """
+    Process all entries and post them to the ERP API with rate limiting.
+    Enhanced with VCT responsibility consolidation to reduce API calls and document numbers.
+    
+    Args:
+        entries: List of journal entries
+        access_token: OAuth2 access token
+        balance_tolerance: Acceptable difference between debit and credit amounts
+        skip_unbalanced: If True, skip unbalanced entries instead of posting them
+        unbalanced_report_file: Path to the output report file for unbalanced entries
+        base_delay: Base delay in seconds between API calls
+        max_delay: Maximum delay in seconds between API calls
+        backoff_factor: Factor to increase delay on failures
+        max_retries: Maximum number of retry attempts for failed API calls
+    
+    Returns:
+        Tuple[int, int, int, int]: Count of successful, failed, balanced, and unbalanced entries
+    """
+    # Create a rate limiter
+    rate_limiter = RateLimiter(base_delay, max_delay, backoff_factor)
+    logger.info(f"Rate limiter initialized with base_delay={base_delay}s, max_delay={max_delay}s, backoff_factor={backoff_factor}")
+    success_count = 0
+    failure_count = 0
+    balanced_count = 0
+    unbalanced_count = 0
+    unbalanced_entries = []
+    
+    # Create a dictionary to track used document numbers for debit lines in consolidated entries
+    # This ensures document numbers are unique across consolidated entries
+    used_doc_numbers = {}
+    logger.info("Initialized used_doc_numbers dictionary for tracking document number sequences")
+    
+    # Initialize external_doc_no_counter for External Document Number uniqueness
+    external_doc_no_counter = {}
+    logger.info("Initialized external_doc_no_counter dictionary for External Document Number uniqueness tracking")
+    
+    # STEP 1: Process all entries individually (no consolidation for V-VC00048)
+    # Based on GitHub Issue #35, V-VC00048 entries should be processed individually
+    # without any additional VCT responsibility processing
+    
+    # Filter out VCT responsibility entries before processing
+    filtered_entries = []
+    for entry in entries:
+        # Check if this is a VCT responsibility entry and skip it
+        if entry.get("vct_responsibility", False):
+            logger.info(f"Skipping VCT responsibility entry - Voucher: {entry.get('voucher_no', 'Unknown')}")
+            continue
+        
+        # Also check if debit or credit entries have vct_responsibility flag
+        if (entry.get("debit", {}).get("vct_responsibility", False) or 
+            entry.get("credit", {}).get("vct_responsibility", False)):
+            logger.info(f"Skipping VCT responsibility entry (debit/credit flag) - Voucher: {entry.get('voucher_no', 'Unknown')}")
+            continue
+        
+        filtered_entries.append(entry)
+    
+    logger.info(f"Filtered {len(entries) - len(filtered_entries)} VCT responsibility entries, processing {len(filtered_entries)} regular entries")
+    
+    # Group entries by voucher number and vendor code
+    entry_groups = {}
+    # Track entries that are already consolidated in the input data
+    already_consolidated = set()
+    
+    for entry in filtered_entries:
+        voucher_no = entry.get('voucher_no', 'Unknown')
+        vendor_code = entry.get('credit', {}).get('vendor_code', '')
+        
+        # Check if this is a consolidated entry (empty debit and consolidated credit)
+        if (not entry.get("debit", {}).get("account") and 
+            entry.get("credit", {}).get("consolidated", False)):
+            # Mark this voucher as already having a consolidated entry
+            already_consolidated.add(voucher_no)
+            
+        if not vendor_code:
+            # If no vendor code, just process as individual entry
+            if voucher_no not in entry_groups:
+                entry_groups[voucher_no] = {}
+            if 'individual' not in entry_groups[voucher_no]:
+                entry_groups[voucher_no]['individual'] = []
+            entry_groups[voucher_no]['individual'].append(entry)
+        else:
+            # Group by vendor code
+            if voucher_no not in entry_groups:
+                entry_groups[voucher_no] = {}
+            if vendor_code not in entry_groups[voucher_no]:
+                entry_groups[voucher_no][vendor_code] = []
+            entry_groups[voucher_no][vendor_code].append(entry)
+    
+    # Process each group
+    for voucher_no, vendor_groups in entry_groups.items():
+        # Check if this voucher is already consolidated in the input data
+        is_already_consolidated = voucher_no in already_consolidated
+        
+        for vendor_code, group_entries in vendor_groups.items():
+            # Find entries with valid debit information
+            valid_entries = [e for e in group_entries if e["debit"] and e["debit"].get("amount")]
+            
+            # Find consolidated credit entries
+            consolidated_entries = [e for e in group_entries if e["credit"].get("consolidated", False)]
+            
+            if not valid_entries:
+                continue
+                
+            # Check if this is a V-VC00048 vendor (should be processed individually)
+            is_vct_responsibility_vendor = vendor_code == "V-VC00048"
+            
+            # If only one valid entry in the group, this voucher is already consolidated,
+            # or this is a V-VC00048 vendor, process each entry individually
+            if len(valid_entries) == 1 or is_already_consolidated or is_vct_responsibility_vendor:
+                # Process each valid entry individually
+                for i, entry in enumerate(valid_entries):
+                    entry_voucher_no = entry.get('voucher_no', 'Unknown')
+                    logger.info(f"Processing individual entry - Voucher: {entry_voucher_no}")
+                
+                    # Check if this is a VCT responsibility entry and skip regular processing
+                    if entry.get("vct_responsibility", False):
+                        logger.info(f"Skipping VCT responsibility entry - Voucher: {entry_voucher_no}")
+                        continue
+                    
+                    # Also check if debit or credit entries have vct_responsibility flag
+                    if (entry.get("debit", {}).get("vct_responsibility", False) or 
+                        entry.get("credit", {}).get("vct_responsibility", False)):
+                        logger.info(f"Skipping VCT responsibility entry (debit/credit flag) - Voucher: {entry_voucher_no}")
+                        continue
+                
+                    # Verify that debit and credit amounts balance after currency conversion
+                    is_balanced, difference, debit_total, credit_total = verify_balanced_amounts(entry, balance_tolerance)
+                    
+                    if is_balanced:
+                        logger.info(f"Entry balanced for voucher {entry_voucher_no}: " 
+                                   f"Debit: {debit_total:.2f}, Credit: {credit_total:.2f}")
+                        balanced_count += 1
+                    else:
+                        logger.warning(f"Unbalanced entry detected for voucher {entry_voucher_no}: " 
+                                      f"Debit: {debit_total:.2f}, Credit: {credit_total:.2f}, " 
+                                      f"Difference: {difference:.2f}")
+                        unbalanced_count += 1
+                        
+                        # Store unbalanced entry details for reporting
+                        unbalanced_entries.append({
+                            "voucher_no": entry_voucher_no,
+                            "vendor_code": entry.get('credit', {}).get('vendor_code', ''),
+                            "debit_total": debit_total,
+                            "credit_total": credit_total,
+                            "difference": difference,
+                            "entries": [entry]
+                        })
+                        
+                        # Skip unbalanced entries if configured to do so
+                        if skip_unbalanced:
+                            logger.error(f"Skipping unbalanced entry for voucher {entry_voucher_no}")
+                            continue
+                        else:
+                            logger.warning(f"Processing unbalanced entry for voucher {entry_voucher_no} despite imbalance")
+                    
+                    # Determine document number for individual processing
+                    original_doc_no = entry_voucher_no
+                    
+                    # For V-VC00048 individual processing, use incremented document numbers
+                    if is_vct_responsibility_vendor and len(valid_entries) > 1:
+                        # Initialize counter if needed (start from 0 so first increment gives 1)
+                        if original_doc_no not in used_doc_numbers:
+                            used_doc_numbers[original_doc_no] = 0
+                            logger.info(f"Initializing counter for individual V-VC00048 document number {original_doc_no}")
+                        
+                        # Always increment for individual V-VC00048 entries
+                        used_doc_numbers[original_doc_no] += 1
+                        modified_doc_no = f"{original_doc_no}-{used_doc_numbers[original_doc_no]}"
+                        logger.info(f"Using modified document number {modified_doc_no} for individual V-VC00048 entry {i+1}")
+                        final_doc_no = modified_doc_no
+                    else:
+                        # For single entries or non-V-VC00048, use original document number
+                        final_doc_no = original_doc_no
+                        logger.info(f"Using original document number {original_doc_no} for individual entry {i+1}")
+                    
+                    # Process debit line
+                    debit_line = create_journal_line(entry, "debit")
+                    # Use the determined document number
+                    debit_line["Document_No"] = final_doc_no
+                    # Use the original External_Document_No without modification
+                    logger.info(f"Posting debit line for voucher {entry_voucher_no} with Document_No: {debit_line['Document_No']}")
+                    # Create a deep copy of the debit line to prevent any reference issues
+                    debit_line_copy = json.loads(json.dumps(debit_line, cls=DecimalEncoder))
+                    debit_success, debit_response = post_journal_line(debit_line_copy, access_token, rate_limiter, max_retries)
+                    
+                    if debit_success:
+                        logger.info(f"Successfully posted debit line for voucher {entry_voucher_no}")
+                        success_count += 1
+                    else:
+                        logger.error(f"Failed to post debit line for voucher {entry_voucher_no}")
+                        failure_count += 1
+                    
+                    # If this voucher is already consolidated in the input data,
+                    # only post the credit line for the entry with the consolidated credit
+                    # Initialize credit_success to False
+                    credit_success = False
+                    
+                    if not is_already_consolidated or not consolidated_entries:
+                        # Process credit line
+                        credit_line = create_journal_line(entry, "credit")
+                        # Use the determined document number
+                        credit_line["Document_No"] = final_doc_no
+                        # Use the original External_Document_No without modification
+                        logger.info(f"Posting credit line for voucher {entry_voucher_no} with Document_No: {credit_line['Document_No']}")
+                        
+                        # Log detailed information about the credit line before posting
+                        logger.info(f"Credit line details for voucher {entry_voucher_no}:")
+                        logger.info(f"Account Type: {credit_line.get('Account_Type')}")
+                        logger.info(f"Account No: {credit_line.get('Account_No')}")
+                        logger.info(f"Currency Code: {credit_line.get('Currency_Code')}")
+                        logger.info(f"Amount: {credit_line.get('Amount')}")
+                        logger.info(f"Dimensions: {credit_line.get('Shortcut_Dimension_1_Code')}, {credit_line.get('Shortcut_Dimension_2_Code')}")
+                        
+                        # Create a deep copy of the credit line to prevent any reference issues
+                        credit_line_copy = json.loads(json.dumps(credit_line, cls=DecimalEncoder))
+                        credit_success, credit_response = post_journal_line(credit_line_copy, access_token, rate_limiter, max_retries)
+                    
+                        if credit_success:
+                            logger.info(f"Successfully posted credit line for voucher {entry_voucher_no}")
+                            success_count += 1
+                        else:
+                            logger.error(f"Failed to post credit line for voucher {entry_voucher_no}")
+                            logger.error(f"Credit line failure details: {json.dumps(credit_response, indent=2, cls=DecimalEncoder)}")
+                            logger.error(f"Original entry data: {json.dumps(entry.get('credit', {}), indent=2, cls=DecimalEncoder)}")
+                            
+                            # Analyze the error response
+                            if isinstance(credit_response, dict) and "error" in credit_response:
+                                error_analysis = analyze_error_response(credit_response)
+                                logger.error(f"Credit line error analysis: {error_analysis}")
+                            
+                            failure_count += 1
+                    
+                    # V-VC00048 entries are now processed individually without additional VCT responsibility processing
+                    # This aligns with GitHub Issue #35 requirement for individual processing
+                    original_vendor_code = entry.get('credit', {}).get('vendor_code', '')
+                    department = entry.get('credit', {}).get('department', '')
+                    cost_center = department[:3] if department else ''
+                    
+                    if original_vendor_code == "V-VC00048" and cost_center and cost_center != "VCT":
+                        logger.info(f"V-VC00048 entry processed individually for voucher {entry_voucher_no} - no additional VCT responsibility processing needed")
+                
+                # If this voucher is already consolidated and we have consolidated entries,
+                # post the consolidated credit line once
+                if is_already_consolidated and consolidated_entries:
+                    # Use the first consolidated entry
+                    consolidated_entry = consolidated_entries[0]
+                    consolidated_voucher_no = consolidated_entry.get('voucher_no', voucher_no)
+                    
+                    # Process the consolidated credit line
+                    credit_line = create_journal_line(consolidated_entry, "credit")
+                    # Ensure Document_No matches the consolidated voucher_no
+                    credit_line["Document_No"] = consolidated_voucher_no
+                    # Use the original External_Document_No without modification
+                    logger.info(f"Posting consolidated credit line for voucher {consolidated_voucher_no} with Document_No: {credit_line['Document_No']} - " +
+                               f"Using existing consolidated entry")
+                    
+                    # Create a deep copy of the credit line to prevent any reference issues
+                    credit_line_copy = json.loads(json.dumps(credit_line, cls=DecimalEncoder))
+                    credit_success, credit_response = post_journal_line(credit_line_copy, access_token, rate_limiter, max_retries)
+                    
+                    if credit_success:
+                        logger.info(f"Successfully posted consolidated credit line for voucher {consolidated_voucher_no}")
+                        success_count += 1
+                    else:
+                        logger.error(f"Failed to post consolidated credit line for voucher {consolidated_voucher_no}")
+                        failure_count += 1
+            # Only process multiple entries with consolidated credit if this voucher is not already consolidated
+            elif not is_already_consolidated:
+                # Process multiple entries with consolidated credit
+                logger.info(f"Processing {len(valid_entries)} entries with consolidated credit - Voucher: {voucher_no}")
+                
+                # Find the consolidated credit entry if it exists
+                consolidated_entry = next((e for e in group_entries if e["credit"].get("consolidated", False)), None)
+                
+                if consolidated_entry:
+                    # Use the existing consolidated credit entry
+                    template_entry = consolidated_entry
+                    consolidated_voucher_no = template_entry.get('voucher_no', voucher_no)
+                else:
+                    # Create a new consolidated credit entry from the first entry
+                    # Sum up all debit amounts
+                    total_amount = sum(e["debit"].get("amount", 0) for e in valid_entries)
+                    
+                    # Use the first entry as a template
+                    template_entry = valid_entries[0].copy()
+                    template_entry["credit"]["amount"] = total_amount
+                    template_entry["credit"]["consolidated"] = True
+                    template_entry["credit"]["original_entries_count"] = len(valid_entries)
+                    template_entry["credit"]["consolidation_note"] = f"Consolidated from {len(valid_entries)} entries"
+                    consolidated_voucher_no = template_entry.get('voucher_no', voucher_no)
+                
+                # Verify that the consolidated entries balance
+                is_balanced, difference, debit_total, credit_total = verify_balanced_amounts(valid_entries, balance_tolerance)
+                
+                if is_balanced:
+                    logger.info(f"Consolidated entries balanced for voucher group {voucher_no}: " 
+                               f"Debit: {debit_total:.2f}, Credit: {credit_total:.2f}")
+                    balanced_count += 1
+                else:
+                    logger.warning(f"Unbalanced consolidated entries detected for voucher group {voucher_no}: " 
+                                  f"Debit: {debit_total:.2f}, Credit: {credit_total:.2f}, " 
+                                  f"Difference: {difference:.2f}")
+                    unbalanced_count += 1
+                    
+                    # Store unbalanced entry details for reporting
+                    unbalanced_entries.append({
+                        "voucher_no": voucher_no,
+                        "vendor_code": vendor_code,
+                        "debit_total": debit_total,
+                        "credit_total": credit_total,
+                        "difference": difference,
+                        "entries": valid_entries
+                    })
+                    
+                    # Skip unbalanced entries if configured to do so
+                    if skip_unbalanced:
+                        logger.error(f"Skipping unbalanced consolidated entries for voucher group {voucher_no}")
+                        continue
+                    else:
+                        logger.warning(f"Processing unbalanced consolidated entries for voucher group {voucher_no} despite imbalance")
+                
+                # Process all debit lines
+                for i, entry in enumerate(valid_entries):
+                    debit_line = create_journal_line(entry, "debit")
+                    # Ensure Document_No matches the entry's voucher_no
+                    entry_voucher_no = entry.get('voucher_no', voucher_no)
+                    
+                    # Check if this document number has been used before for debit lines
+                    # and append a suffix if needed
+                    original_doc_no = entry_voucher_no
+                    
+                    # Log the document number being processed
+                    logger.info(f"Processing document number: {original_doc_no}")
+                    
+                    # Check if this is a VCT responsibility entry
+                    original_vendor_code = entry.get('credit', {}).get('vendor_code', '')
+                    department = entry.get('credit', {}).get('department', '')
+                    cost_center = department[:3] if department else ''
+                    is_vct_responsibility = original_vendor_code == "V-VC00048" and cost_center and cost_center != "VCT"
+                    
+                    # For VCT responsibility entries, always use incremented document numbers
+                    if is_vct_responsibility:
+                        # Initialize counter if needed (start from 0 so first increment gives 1)
+                        if original_doc_no not in used_doc_numbers:
+                            used_doc_numbers[original_doc_no] = 0
+                            logger.info(f"Initializing counter for VCT responsibility document number {original_doc_no}")
+                        
+                        # Always increment for VCT responsibility entries (including first one)
+                        used_doc_numbers[original_doc_no] += 1
+                        modified_doc_no = f"{original_doc_no}-{used_doc_numbers[original_doc_no]}"
+                        logger.info(f"Using modified document number {modified_doc_no} for VCT responsibility entry {i+1}")
+                        debit_line["Document_No"] = modified_doc_no
+                    else:
+                        # For non-VCT responsibility entries, use original document number
+                        debit_line["Document_No"] = original_doc_no
+                        logger.info(f"Using original document number {original_doc_no} for non-VCT responsibility entry {i+1}")
+                    
+                    # Add extra logging to verify counter state
+                    if is_vct_responsibility:
+                        logger.info(f"After processing VCT responsibility entry, counter for {original_doc_no} is now {used_doc_numbers[original_doc_no]}")
+                    
+                    # Use the original External_Document_No without modification
+                    logger.info(f"Posting debit line {i+1}/{len(valid_entries)} for voucher {entry_voucher_no} with Document_No: {debit_line['Document_No']}")
+                    # Create a deep copy of the debit line to prevent any reference issues
+                    debit_line_copy = json.loads(json.dumps(debit_line, cls=DecimalEncoder))
+                    debit_success, debit_response = post_journal_line(debit_line_copy, access_token, rate_limiter, max_retries)
+                    
+                    if debit_success:
+                        logger.info(f"Successfully posted debit line for voucher {entry_voucher_no}")
+                        success_count += 1
+                    else:
+                        logger.error(f"Failed to post debit line for voucher {entry_voucher_no}")
+                        failure_count += 1
+                
+                    # Process the consolidated credit line
+                    credit_line = create_journal_line(template_entry, "credit")
+                    # Ensure Document_No matches the template entry's voucher_no
+                    credit_line["Document_No"] = consolidated_voucher_no
+                    # Use the original External_Document_No without modification
+                    logger.info(f"Posting consolidated credit line for voucher {consolidated_voucher_no} with Document_No: {credit_line['Document_No']} - " +
+                               f"Consolidated from {len(valid_entries)} entries")
+                    
+                    # Log detailed information about the consolidated credit line before posting
+                    logger.info(f"Consolidated credit line details for voucher {consolidated_voucher_no}:")
+                    logger.info(f"Account Type: {credit_line.get('Account_Type')}")
+                    logger.info(f"Account No: {credit_line.get('Account_No')}")
+                    logger.info(f"Currency Code: {credit_line.get('Currency_Code')}")
+                    logger.info(f"Amount: {credit_line.get('Amount')}")
+                    logger.info(f"Dimensions: {credit_line.get('Shortcut_Dimension_1_Code')}, {credit_line.get('Shortcut_Dimension_2_Code')}")
+                    
+                    # Create a deep copy of the credit line to prevent any reference issues
+                    credit_line_copy = json.loads(json.dumps(credit_line, cls=DecimalEncoder))
+                    credit_success, credit_response = post_journal_line(credit_line_copy, access_token, rate_limiter, max_retries)
+                    
+                    if credit_success:
+                        logger.info(f"Successfully posted consolidated credit line for voucher {consolidated_voucher_no}")
+                        success_count += 1
+                    else:
+                        logger.error(f"Failed to post consolidated credit line for voucher {consolidated_voucher_no}")
+                        logger.error(f"Consolidated credit line failure details: {json.dumps(credit_response, indent=2, cls=DecimalEncoder)}")
+                        logger.error(f"Original template entry data: {json.dumps(template_entry.get('credit', {}), indent=2, cls=DecimalEncoder)}")
+                        
+                        # Analyze the error response
+                        if isinstance(credit_response, dict) and "error" in credit_response:
+                            error_analysis = analyze_error_response(credit_response)
+                            logger.error(f"Consolidated credit line error analysis: {error_analysis}")
+                        
+                        failure_count += 1
+                    
+                    # V-VC00048 entries are now processed individually without additional VCT responsibility processing
+                    # This aligns with GitHub Issue #35 requirement for individual processing
+                    original_vendor_code = template_entry.get('credit', {}).get('vendor_code', '')
+                    department = template_entry.get('credit', {}).get('department', '')
+                    cost_center = department[:3] if department else ''
+                    
+                    if original_vendor_code == "V-VC00048" and cost_center and cost_center != "VCT":
+                        logger.info(f"V-VC00048 entry processed individually for voucher {consolidated_voucher_no} - no additional VCT responsibility processing needed")
+    
+    # STEP 2: No additional VCT responsibility processing needed
+    # Based on GitHub Issue #35, V-VC00048 entries are processed individually
+    # without any additional VCT responsibility entries
+    logger.info("V-VC00048 entries processed individually - no additional VCT responsibility processing needed")
+    
+    # Generate report of unbalanced entries if any were found
+    if unbalanced_entries:
+        generate_unbalanced_entries_report(unbalanced_entries, unbalanced_report_file)
+        logger.info(f"Generated unbalanced entries report with {len(unbalanced_entries)} entries: {unbalanced_report_file}")
+    
+    return success_count, failure_count, balanced_count, unbalanced_count
+
+
+def main():
+    """Main function to process the input file and post to the ERP API."""
+    parser = argparse.ArgumentParser(description='Process JSON file and post to ERP API')
+    parser.add_argument('input_file', help='Input JSON file path')
+    parser.add_argument('--report', help='Generate currency modification report to specified file path', default="currency_modification_report.md")
+    parser.add_argument('--unbalanced-report', help='Generate unbalanced entries report to specified file path', default="unbalanced_entries_report.md")
+    parser.add_argument('--balance-tolerance', type=float, default=0.01, help='Acceptable difference between debit and credit amounts')
+    parser.add_argument('--skip-unbalanced', action='store_true', help='Skip unbalanced entries instead of posting them')
+    parser.add_argument('--dry-run', action='store_true', help='Generate report only without posting to API')
+    parser.add_argument('--sample-payload', help='Output a sample journal line payload to specified file path')
+    parser.add_argument('--base-delay', type=float, default=5.0, help='Base delay between API calls in seconds (default: 5.0)')
+    parser.add_argument('--max-delay', type=float, default=10.0, help='Maximum delay between API calls in seconds (default: 10.0)')
+    parser.add_argument('--backoff-factor', type=float, default=2.0, help='Factor to increase delay on failures (default: 2.0)')
+    parser.add_argument('--max-retries', type=int, default=3, help='Maximum number of retry attempts for failed API calls (default: 3)')
+    args = parser.parse_args()
+    
+    # Check if input file exists
+    if not os.path.exists(args.input_file):
+        logger.error(f"Input file not found: {args.input_file}")
+        sys.exit(1)
+    
+    # Load input file
+    try:
+        with open(args.input_file, 'r', encoding='utf-8') as f:
+            entries = json.load(f)
+        logger.info(f"Loaded {len(entries)} entries from {args.input_file}")
+    except Exception as e:
+        logger.error(f"Error loading input file: {str(e)}")
+        sys.exit(1)
+    
+    # Generate currency modification report
+    modifications = generate_currency_modification_report(entries, args.report)
+    logger.info(f"Generated currency modification report with {len(modifications)} modifications")
+    
+    # If sample-payload is specified, generate a sample payload and exit
+    if args.sample_payload:
+        # Use the first entry to generate a sample payload
+        if entries:
+            entry = entries[0]
+            debit_line = create_journal_line(entry, "debit")
+            credit_line = create_journal_line(entry, "credit")
+            
+            sample = {
+                "debit_line": debit_line,
+                "credit_line": credit_line
+            }
+            
+            with open(args.sample_payload, 'w', encoding='utf-8') as f:
+                json.dump(sample, f, ensure_ascii=False, indent=2)
+            
+            logger.info(f"Sample payload written to {args.sample_payload}")
+            sys.exit(0)
+    
+    # If dry-run is specified, exit after generating the report
+    if args.dry_run:
+        logger.info("Dry run completed. Exiting without posting to API.")
+        sys.exit(0)
+    
+    # Get access token
+    try:
+        access_token = get_access_token()
+    except Exception as e:
+        logger.error(f"Failed to get access token: {str(e)}")
+        sys.exit(1)
+    
+    # Process entries
+    success_count, failure_count, balanced_count, unbalanced_count = process_entries(
+        entries, 
+        access_token, 
+        balance_tolerance=args.balance_tolerance,
+        skip_unbalanced=args.skip_unbalanced,
+        unbalanced_report_file=args.unbalanced_report,
+        base_delay=args.base_delay,
+        max_delay=args.max_delay,
+        backoff_factor=args.backoff_factor,
+        max_retries=args.max_retries
+    )
+    
+    # Log summary
+    total_lines = len(entries) * 2  # Each entry has debit and credit lines
+    logger.info(f"Processing complete. Success: {success_count}/{total_lines}, Failure: {failure_count}/{total_lines}")
+    logger.info(f"Balance check: Balanced: {balanced_count}, Unbalanced: {unbalanced_count}")
+
+
+if __name__ == "__main__":
+    main()
