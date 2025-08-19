@@ -67,7 +67,8 @@ oba_analysis_output.txt
 client_secret_debug.txt
 fixed_output.json
 
-# Keep Temp directory but ignore its contents except for .gitkeep
+# Keep Temp & example directory but ignore its contents except for .gitkeep
+examples/*
 Temp/*
 !Temp/tests/
 Temp/tests/*
