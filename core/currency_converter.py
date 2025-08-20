@@ -14,6 +14,13 @@ import logging
 from decimal import Decimal, ROUND_HALF_UP, getcontext
 from core.exchange_rate_query import get_exchange_rate
 
+# Import company-specific rounding functions
+try:
+    from core.currency_rounding import apply_company_rounding
+except ImportError:
+    # Fallback if company rounding module is not available
+    apply_company_rounding = None
+
 # Configure logging
 logger = logging.getLogger("erp_api_integration")
 
@@ -23,15 +30,16 @@ getcontext().prec = 28
 def convert_amount(amount, from_currency, to_currency, company_code=None, excel_path=None, decimal_precision=0):
     """
     Convert an amount from one currency to another using exchange rates.
-    Uses Decimal type for precise financial calculations.
+    Uses Decimal type for precise financial calculations with company-specific rounding rules.
     
     Args:
         amount (float or Decimal): The amount to convert
         from_currency (str): Source currency code
         to_currency (str): Target currency code
-        company_code (str, optional): Company code to use for exchange rate lookup
+        company_code (str, optional): Company code for company-specific rounding (VCA, VCP, VCT, etc.)
         excel_path (str, optional): Path to the exchange rate Excel file
         decimal_precision (int, optional): Number of decimal places for rounding (default: 0)
+                                         Note: When company_code is provided, company-specific rules take precedence
         
     Returns:
         tuple: (converted_amount, success_flag)
@@ -44,7 +52,16 @@ def convert_amount(amount, from_currency, to_currency, company_code=None, excel_
     
     # If currencies are the same or either is empty, no conversion needed
     if from_currency == to_currency or not from_currency or not to_currency:
-        # Return amount rounded to specified precision
+        # Apply company-specific rounding if company code is provided and rounding module is available
+        if company_code and apply_company_rounding:
+            try:
+                rounded_amount = apply_company_rounding(amount, company_code)
+                logger.info(f"Applied company-specific rounding for {company_code}: {amount} → {rounded_amount}")
+                return rounded_amount, True
+            except Exception as e:
+                logger.warning(f"Company-specific rounding failed for {company_code}, using fallback: {str(e)}")
+        
+        # Fallback to standard rounding
         return amount.quantize(Decimal(f'0.{"0" * decimal_precision}'), rounding=ROUND_HALF_UP), True
     
     try:
@@ -64,8 +81,18 @@ def convert_amount(amount, from_currency, to_currency, company_code=None, excel_
         # Calculate the conversion without intermediate rounding
         raw_conversion = amount * rate_decimal
         
-        # Apply rounding only at the final step
-        converted = raw_conversion.quantize(Decimal(f'0.{"0" * decimal_precision}'), rounding=ROUND_HALF_UP)
+        # Apply company-specific rounding if company code is provided and rounding module is available
+        if company_code and apply_company_rounding:
+            try:
+                converted = apply_company_rounding(raw_conversion, company_code)
+                logger.info(f"Applied company-specific rounding for {company_code}: {raw_conversion} → {converted}")
+            except Exception as e:
+                logger.warning(f"Company-specific rounding failed for {company_code}, using fallback: {str(e)}")
+                # Fallback to standard rounding
+                converted = raw_conversion.quantize(Decimal(f'0.{"0" * decimal_precision}'), rounding=ROUND_HALF_UP)
+        else:
+            # Apply standard rounding only at the final step
+            converted = raw_conversion.quantize(Decimal(f'0.{"0" * decimal_precision}'), rounding=ROUND_HALF_UP)
         
         logger.info(f"Converted {amount} {from_currency} to {converted} {to_currency} (rate: {rate_decimal})")
         logger.info(f"Raw conversion: {raw_conversion}, After Decimal rounding: {converted}")
@@ -82,15 +109,17 @@ def convert_through_intermediate(amount, from_currency, intermediate_currency, t
                                 company_code=None, excel_path=None, decimal_precision=0):
     """
     Convert an amount through an intermediate currency without intermediate rounding.
+    Uses company-specific rounding rules when company_code is provided.
     
     Args:
         amount (float or Decimal): The amount to convert
         from_currency (str): Source currency code
         intermediate_currency (str): Intermediate currency code
         to_currency (str): Target currency code
-        company_code (str, optional): Company code to use for exchange rate lookup
+        company_code (str, optional): Company code for company-specific rounding (VCA, VCP, VCT, etc.)
         excel_path (str, optional): Path to the exchange rate Excel file
         decimal_precision (int, optional): Number of decimal places for rounding (default: 0)
+                                         Note: When company_code is provided, company-specific rules take precedence
         
     Returns:
         tuple: (converted_amount, success_flag)
@@ -118,8 +147,18 @@ def convert_through_intermediate(amount, from_currency, intermediate_currency, t
         # Calculate the conversion without intermediate rounding
         raw_conversion = amount * rate1_decimal * rate2_decimal
         
-        # Apply rounding only at the final step
-        converted = raw_conversion.quantize(Decimal(f'0.{"0" * decimal_precision}'), rounding=ROUND_HALF_UP)
+        # Apply company-specific rounding if company code is provided and rounding module is available
+        if company_code and apply_company_rounding:
+            try:
+                converted = apply_company_rounding(raw_conversion, company_code)
+                logger.info(f"Applied company-specific rounding for {company_code}: {raw_conversion} → {converted}")
+            except Exception as e:
+                logger.warning(f"Company-specific rounding failed for {company_code}, using fallback: {str(e)}")
+                # Fallback to standard rounding
+                converted = raw_conversion.quantize(Decimal(f'0.{"0" * decimal_precision}'), rounding=ROUND_HALF_UP)
+        else:
+            # Apply standard rounding only at the final step
+            converted = raw_conversion.quantize(Decimal(f'0.{"0" * decimal_precision}'), rounding=ROUND_HALF_UP)
         
         logger.info(f"Converted {amount} {from_currency} to {converted} {to_currency} "
                    f"through {intermediate_currency} (rates: {rate1_decimal}, {rate2_decimal})")
