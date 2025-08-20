@@ -125,14 +125,21 @@ def collect_vct_responsibility_candidates(entries: List[Dict[str, Any]]) -> Dict
         department = entry.get('credit', {}).get('department', '')
         cost_center = department[:3] if department else ''
         
+        # Check if this is a V-VC00048 entry that needs VCT responsibility processing
+        # Exclude consolidated entries as they are results of processing, not sources
+        is_consolidated = entry.get('credit', {}).get('consolidated', False)
+        
         if original_vendor_code == "V-VC00048" and cost_center and cost_center != "VCT":
             voucher_no = entry.get('voucher_no', 'Unknown')
             
-            if voucher_no not in vct_candidates:
-                vct_candidates[voucher_no] = []
-            
-            vct_candidates[voucher_no].append(entry)
-            logger.info(f"Collected VCT responsibility candidate - Voucher: {voucher_no}, Cost Center: {cost_center}")
+            if is_consolidated:
+                logger.info(f"Excluding consolidated V-VC00048 entry from VCT responsibility - Voucher: {voucher_no}, Amount: {entry.get('credit', {}).get('amount', 0)}")
+            else:
+                if voucher_no not in vct_candidates:
+                    vct_candidates[voucher_no] = []
+                
+                vct_candidates[voucher_no].append(entry)
+                logger.info(f"Collected VCT responsibility candidate - Voucher: {voucher_no}, Cost Center: {cost_center}, Amount: {entry.get('credit', {}).get('amount', 0)}")
     
     return vct_candidates
 
