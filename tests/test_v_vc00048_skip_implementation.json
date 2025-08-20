@@ -1,0 +1,123 @@
+[
+  {
+    "voucher_no": "TEST-CONS-001",
+    "Document_Date": "2025/01/15",
+    "External_Document_No": "EXT-001",
+    "description": "Test consolidated V-VC00048 entry",
+    "debit": {
+      "account": "",
+      "amount": 0,
+      "currency": "",
+      "department": "",
+      "department_code": ""
+    },
+    "credit": {
+      "account": "V-VC00048",
+      "amount": 5000.0,
+      "currency": "NTD",
+      "department": "VCP.1234",
+      "department_code": "VCP.1234",
+      "vendor_code": "V-VC00048",
+      "gl_account": "Vendor",
+      "consolidated": true,
+      "original_entries_count": 3,
+      "Remarks": "Consolidated V-VC00048 entry"
+    }
+  },
+  {
+    "voucher_no": "TEST-IND-001",
+    "Document_Date": "2025/01/15",
+    "External_Document_No": "EXT-IND-001",
+    "description": "Individual V-VC00048 entry 1",
+    "debit": {
+      "account": "18600-10",
+      "amount": 1500.0,
+      "currency": "NTD",
+      "department": "VCP.1234",
+      "department_code": "VCP.1234"
+    },
+    "credit": {
+      "account": "V-VC00048",
+      "amount": 1500.0,
+      "currency": "NTD",
+      "department": "VCP.1234",
+      "department_code": "VCP.1234",
+      "vendor_code": "V-VC00048",
+      "gl_account": "Vendor",
+      "consolidated": false,
+      "Remarks": "Individual V-VC00048 entry"
+    }
+  },
+  {
+    "voucher_no": "TEST-IND-002",
+    "Document_Date": "2025/01/15",
+    "External_Document_No": "EXT-IND-002",
+    "description": "Individual V-VC00048 entry 2",
+    "debit": {
+      "account": "18600-10",
+      "amount": 2000.0,
+      "currency": "USD",
+      "department": "VCA.5678",
+      "department_code": "VCA.5678"
+    },
+    "credit": {
+      "account": "V-VC00048",
+      "amount": 2000.0,
+      "currency": "USD",
+      "department": "VCA.5678",
+      "department_code": "VCA.5678",
+      "vendor_code": "V-VC00048",
+      "gl_account": "Vendor",
+      "consolidated": false,
+      "Remarks": "Individual V-VC00048 USD entry"
+    }
+  },
+  {
+    "voucher_no": "TEST-OTHER-001",
+    "Document_Date": "2025/01/15",
+    "External_Document_No": "EXT-OTHER-001",
+    "description": "Other V-VC vendor consolidated",
+    "debit": {
+      "account": "",
+      "amount": 0,
+      "currency": "",
+      "department": "",
+      "department_code": ""
+    },
+    "credit": {
+      "account": "V-VC00001",
+      "amount": 3000.0,
+      "currency": "NTD",
+      "department": "VCT.9999",
+      "department_code": "VCT.9999",
+      "vendor_code": "V-VC00001",
+      "gl_account": "Vendor",
+      "consolidated": true,
+      "original_entries_count": 2,
+      "Remarks": "Other V-VC consolidated entry"
+    }
+  },
+  {
+    "voucher_no": "TEST-GL-001",
+    "Document_Date": "2025/01/15",
+    "External_Document_No": "EXT-GL-001",
+    "description": "Regular G/L entry",
+    "debit": {
+      "account": "18600-10",
+      "amount": 1000.0,
+      "currency": "NTD",
+      "department": "VCT.9999",
+      "department_code": "VCT.9999"
+    },
+    "credit": {
+      "account": "21000-01",
+      "amount": 1000.0,
+      "currency": "NTD",
+      "department": "VCT.9999",
+      "department_code": "VCT.9999",
+      "gl_account": "G/L Account",
+      "consolidated": false,
+      "Remarks": "Regular G/L entry"
+    }
+  }
+]
