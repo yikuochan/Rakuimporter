@@ -46,14 +46,10 @@ Found 48 entries with 72600-10/72600-30 accounts in test data, including:
 
 ## Alignment with GitHub Requirements
 
-### ✅ Issue #61 Requirements
-- Accounts 72600-10 and 72600-30 now follow vendor logic based on account_source
-
-### ✅ PR #65 Requirements  
-- ShortcutDimCode4 logic now respects the account_source field tracking
-
-### ✅ PR #66 Requirements
-- Normal vendor logic applies to these accounts without override
+### ✅ Updated Requirements (August 2025)
+- Accounts 72600-10 and 72600-30 with `vendor_code` source now set to "N/A"
+- Accounts 72600-10 and 72600-30 with `applicant_code` source follow normal vendor logic
+- This provides a hybrid approach between the original hardcode and full vendor logic
 
 ## account_source Field Tracking
 
@@ -64,12 +60,12 @@ The `account_source` field is properly set in `csv_to_json_converter.py`:
 
 ## Expected Behavior Change
 
-| Scenario | Before Fix | After Fix |
-|----------|-----------|-----------|
-| 72600-10 + vendor_code source | ShortcutDimCode4 = "N/A" | ShortcutDimCode4 = "" |
-| 72600-10 + applicant_code source | ShortcutDimCode4 = "N/A" | ShortcutDimCode4 = applicant_code |
-| 72600-30 + vendor_code source | ShortcutDimCode4 = "N/A" | ShortcutDimCode4 = "" |
-| 72600-30 + applicant_code source | ShortcutDimCode4 = "N/A" | ShortcutDimCode4 = applicant_code |
+| Scenario | Original Hardcode | After First Fix | Current Implementation (Aug 2025) |
+|----------|-------------------|-----------------|-----------------------------------|
+| 72600-10 + vendor_code source | ShortcutDimCode4 = "N/A" | ShortcutDimCode4 = "" | ShortcutDimCode4 = "N/A" |
+| 72600-10 + applicant_code source | ShortcutDimCode4 = "N/A" | ShortcutDimCode4 = applicant_code | ShortcutDimCode4 = applicant_code |
+| 72600-30 + vendor_code source | ShortcutDimCode4 = "N/A" | ShortcutDimCode4 = "" | ShortcutDimCode4 = "N/A" |
+| 72600-30 + applicant_code source | ShortcutDimCode4 = "N/A" | ShortcutDimCode4 = applicant_code | ShortcutDimCode4 = applicant_code |
 
 ## Manual Verification Guide
 
@@ -82,11 +78,25 @@ For manual testing with real data:
    - `account_source = "applicant_code"` → Should be the applicant code value
 4. **Compare results**: Process same data with both implementations to confirm the change
 
+## Implementation History
+
+### Version 1: Original Hardcode
+- All 72600-10/30 transactions forced to "N/A" regardless of source
+
+### Version 2: Full Vendor Logic (2025-07)
+- Removed hardcode completely
+- 72600-10/30 followed normal vendor logic for all scenarios
+
+### Version 3: Hybrid Approach (August 2025)
+- **NEW REQUIREMENT**: 72600-10/30 + vendor_code source → "N/A"
+- 72600-10/30 + applicant_code source → follows vendor logic (applicant_code)
+- Provides selective "N/A" assignment based on account source
+
 ## Conclusion
 
-✅ **Fix Successfully Applied**  
-✅ **All Tests Passing**  
-✅ **GitHub Requirements Aligned**  
+✅ **Latest Implementation Applied (Aug 2025)**  
+✅ **All Tests Updated and Passing**  
+✅ **Hybrid Logic Successfully Implemented**  
 ✅ **No Regressions Detected**  
 
-The 72600-10 and 72600-30 accounts now correctly follow normal vendor logic based on the `account_source` field, as required by the GitHub specifications.
+The 72600-10 and 72600-30 accounts now use a hybrid approach that sets ShortcutDimCode4 to "N/A" for vendor_code source transactions while allowing applicant_code source transactions to follow normal vendor logic.

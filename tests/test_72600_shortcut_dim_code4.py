@@ -72,18 +72,18 @@ class Test72600ShortcutDimCode4(unittest.TestCase):
 
     @unittest.skipIf(create_journal_line is None, "create_journal_line not available")
     def test_72600_10_with_vendor_code_source(self):
-        """Test 72600-10 with account_source = 'vendor_code' should have empty ShortcutDimCode4"""
+        """Test 72600-10 with account_source = 'vendor_code' should have 'N/A' ShortcutDimCode4"""
         entry = self.create_test_entry("72600-10", "vendor_code", "TEST_APPLICANT", "V-TEST001")
         
         # Test debit line
         debit_line = create_journal_line(entry, "debit")
-        self.assertEqual(debit_line["ShortcutDimCode4"], "", 
-                        "72600-10 debit with vendor_code source should have empty ShortcutDimCode4")
+        self.assertEqual(debit_line["ShortcutDimCode4"], "N/A", 
+                        "72600-10 debit with vendor_code source should have 'N/A' ShortcutDimCode4")
         
         # Test credit line  
         credit_line = create_journal_line(entry, "credit")
-        self.assertEqual(credit_line["ShortcutDimCode4"], "",
-                        "72600-10 credit with vendor_code source should have empty ShortcutDimCode4")
+        self.assertEqual(credit_line["ShortcutDimCode4"], "N/A",
+                        "72600-10 credit with vendor_code source should have 'N/A' ShortcutDimCode4")
 
     @unittest.skipIf(create_journal_line is None, "create_journal_line not available")
     def test_72600_10_with_applicant_code_source(self):
@@ -102,18 +102,18 @@ class Test72600ShortcutDimCode4(unittest.TestCase):
 
     @unittest.skipIf(create_journal_line is None, "create_journal_line not available")
     def test_72600_30_with_vendor_code_source(self):
-        """Test 72600-30 with account_source = 'vendor_code' should have empty ShortcutDimCode4"""
+        """Test 72600-30 with account_source = 'vendor_code' should have 'N/A' ShortcutDimCode4"""
         entry = self.create_test_entry("72600-30", "vendor_code", "TEST_APPLICANT", "V-TEST001")
         
         # Test debit line
         debit_line = create_journal_line(entry, "debit")
-        self.assertEqual(debit_line["ShortcutDimCode4"], "",
-                        "72600-30 debit with vendor_code source should have empty ShortcutDimCode4")
+        self.assertEqual(debit_line["ShortcutDimCode4"], "N/A",
+                        "72600-30 debit with vendor_code source should have 'N/A' ShortcutDimCode4")
         
         # Test credit line
         credit_line = create_journal_line(entry, "credit")
-        self.assertEqual(credit_line["ShortcutDimCode4"], "",
-                        "72600-30 credit with vendor_code source should have empty ShortcutDimCode4")
+        self.assertEqual(credit_line["ShortcutDimCode4"], "N/A",
+                        "72600-30 credit with vendor_code source should have 'N/A' ShortcutDimCode4")
 
     @unittest.skipIf(create_journal_line is None, "create_journal_line not available")
     def test_72600_30_with_applicant_code_source(self):

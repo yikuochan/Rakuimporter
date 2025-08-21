@@ -532,8 +532,16 @@ def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any
     # logger.info(f"Added voucher number to description: {description}")
     
     # Determine ShortcutDimCode4 based on account type and source of account_no
+    # NEW: Special case for 72600-10/30 with vendor_code source (HIGHEST PRIORITY)
+    if ((entry_type == "debit" and entry_data.get("account") in ["72600-10", "72600-30"] and 
+         entry.get("credit", {}).get("account_source") == "vendor_code") or
+        (entry_type == "credit" and entry.get("debit", {}).get("account") in ["72600-10", "72600-30"] and 
+         entry_data.get("account_source") == "vendor_code")):
+        account_to_log = entry_data.get("account") if entry_type == "debit" else entry.get("debit", {}).get("account")
+        shortcut_dim_code4 = "N/A"
+        logger.info(f"Setting ShortcutDimCode4 to 'N/A' for account {account_to_log} with vendor_code source - Voucher: {entry.get('voucher_no', 'Unknown')}")
     # EXISTING: Vendor account logic
-    if entry_data.get("gl_account", "") == "Vendor" or entry.get("credit", {}).get("gl_account", "") == "Vendor":
+    elif entry_data.get("gl_account", "") == "Vendor" or entry.get("credit", {}).get("gl_account", "") == "Vendor":
         # For Vendor accounts or entries with Vendor credit, check the source of account_no
         # For debit lines of vendor payments, we need to check the credit side's account_source
         if entry_type == "debit" and entry.get("credit", {}).get("account_source") == "vendor_code":
