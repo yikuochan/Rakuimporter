@@ -53,7 +53,7 @@ def validate_original_requirements():
     
     print("Business Requirements:")
     print("1. VCA, VCP: round down to 2nd digit (eg: 10.118 to 10.11)")
-    print("2. VCT: round down to zero (eg: 99.9 to 99)")
+    print("2. VCT: round to nearest integer (eg: 99.9 to 100)")
     print("3. Rounding based on home currency of company")
     
     # Test requirement examples
@@ -65,9 +65,9 @@ def validate_original_requirements():
     print(f"VCA: 10.118 → {vca_result} (Expected: 10.11) {'✅ PASS' if float(vca_result) == 10.11 else '❌ FAIL'}")
     print(f"VCP: 10.118 → {vcp_result} (Expected: 10.11) {'✅ PASS' if float(vcp_result) == 10.11 else '❌ FAIL'}")
     
-    # VCT requirement: 99.9 to 99
+    # VCT requirement: 99.9 to 100
     vct_result = apply_company_rounding(99.9, "VCT")
-    print(f"VCT: 99.9 → {vct_result} (Expected: 99) {'✅ PASS' if float(vct_result) == 99 else '❌ FAIL'}")
+    print(f"VCT: 99.9 → {vct_result} (Expected: 100) {'✅ PASS' if float(vct_result) == 100 else '❌ FAIL'}")
     
     # Run built-in validation
     print_subheader("Built-in Requirements Validation")
@@ -147,11 +147,11 @@ def validate_vct_scenarios():
     
     # Real-world VCT expense scenarios
     scenarios = [
-        ("Employee lunch", 150.75, 150),
-        ("Transportation", 85.9, 85),
-        ("Office supplies", 2500.5, 2500),
-        ("Equipment repair", 8750.99, 8750),
-        ("Professional service", 25000.1, 25000)
+        ("Employee lunch", 150.75, 151),     # Round up
+        ("Transportation", 85.9, 86),       # Round up
+        ("Office supplies", 2500.5, 2501),  # Round up (half-up)
+        ("Equipment repair", 8750.99, 8751), # Round up
+        ("Professional service", 25000.1, 25000)  # Round down
     ]
     
     print_subheader("VCT Expense Processing")
@@ -163,7 +163,7 @@ def validate_vct_scenarios():
     # Test currency conversion with VCT rounding
     print_subheader("VCT Currency Conversion")
     result, success = convert_amount(2500.9, "NTD", "NTD", company_code="VCT")
-    expected = 2500
+    expected = 2501  # Round to nearest integer
     status = "✅ PASS" if success and float(result) == expected else "❌ FAIL"
     print(f"NTD → NTD: NT$2500.9 → NT${result} (Expected: NT${expected}) {status}")
 
@@ -175,9 +175,9 @@ def validate_mixed_company_processing():
     expenses = [
         ("VCA", "USD", 1500.678, 1500.67, "US office supplies"),
         ("VCP", "PHP", 25000.999, 25000.99, "Manila office rent"),
-        ("VCT", "NTD", 3500.8, 3500, "Taipei team lunch"),
+        ("VCT", "NTD", 3500.8, 3501, "Taipei team lunch"),      # Round up 
         ("VCA", "USD", 750.125, 750.12, "US software license"),
-        ("VCT", "NTD", 1200.6, 1200, "Taipei transportation"),
+        ("VCT", "NTD", 1200.6, 1201, "Taipei transportation"),  # Round up
         ("VCP", "PHP", 8900.543, 8900.54, "Manila utilities")
     ]
     
@@ -227,8 +227,9 @@ def validate_transform_currency_integration():
             # Check amount rounding based on company rules
             config = get_company_rounding_config(company)
             if company == "VCT":
-                # VCT should round down to whole numbers
-                amount_ok = float(result_amount) == int(amount)  # Should be whole number
+                # VCT should round to nearest integer
+                expected_amount = float(apply_company_rounding(amount, company))
+                amount_ok = abs(float(result_amount) - expected_amount) < 0.01
             else:
                 # VCA/VCP should round down to 2 decimals
                 expected_amount = float(apply_company_rounding(amount, company))
@@ -282,7 +283,7 @@ def main():
         print("• Original requirements compliance: ✅")
         print("• VCA round-down to 2 decimals: ✅")
         print("• VCP round-down to 2 decimals: ✅") 
-        print("• VCT round-down to 0 decimals: ✅")
+        print("• VCT round to nearest integer: ✅")
         print("• Currency converter integration: ✅")
         print("• Process_japan_exports integration: ✅")
         print("• Mixed company processing: ✅")

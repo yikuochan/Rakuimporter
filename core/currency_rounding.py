@@ -110,17 +110,17 @@ def round_vcp_amount(amount: Union[float, Decimal]) -> Decimal:
 
 def round_vct_amount(amount: Union[float, Decimal]) -> Decimal:
     """
-    Apply VCT-specific rounding (round down to 0 decimal places).
+    Apply VCT-specific rounding (round to nearest integer).
     
     Args:
         amount: Amount to round
         
     Returns:
-        Decimal: Amount rounded down to whole number
+        Decimal: Amount rounded to nearest integer
         
     Example:
         >>> round_vct_amount(99.9)
-        Decimal('99')
+        Decimal('100')
     """
     return apply_company_rounding(amount, "VCT")
 
@@ -155,11 +155,11 @@ def get_rounding_examples(company_code: str) -> list:
     elif company_code.upper() == "VCT":
         return [
             {"input": 99.9, "output": float(apply_company_rounding(99.9, "VCT")), 
-             "description": "99.9 → 99 (round down to 0 decimals)"},
+             "description": "99.9 → 100 (round to nearest integer)"},
             {"input": 99.1, "output": float(apply_company_rounding(99.1, "VCT")), 
-             "description": "99.1 → 99 (round down to 0 decimals)"},
-            {"input": 100.9, "output": float(apply_company_rounding(100.9, "VCT")), 
-             "description": "100.9 → 100 (round down to 0 decimals)"}
+             "description": "99.1 → 99 (round to nearest integer)"},
+            {"input": 100.5, "output": float(apply_company_rounding(100.5, "VCT")), 
+             "description": "100.5 → 101 (round to nearest integer)"}
         ]
     else:
         # Standard rounding examples
@@ -210,12 +210,12 @@ def validate_rounding_requirements():
         else:
             validation_report.append(f"VCP PASS: {input_val} → {result}")
     
-    # Test VCT requirements: Round down to 0 decimals
+    # Test VCT requirements: Round to nearest integer
     test_cases_vct = [
-        (99.9, 99),
-        (99.1, 99),
-        (100.9, 100),
-        (99.0, 99)
+        (99.9, 100),  # Round up
+        (99.1, 99),   # Round down
+        (100.9, 101), # Round up
+        (99.0, 99)    # No change
     ]
     
     for input_val, expected in test_cases_vct:

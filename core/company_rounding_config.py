@@ -39,9 +39,9 @@ COMPANY_ROUNDING_RULES = {
     },
     "VCT": {
         "decimal_places": 0,
-        "rounding_method": RoundingMethod.ROUND_DOWN,
+        "rounding_method": RoundingMethod.ROUND_HALF_UP,
         "home_currency": "NTD",
-        "description": "VCT: Round down to 0 decimal places (e.g., 99.9 → 99)"
+        "description": "VCT: Round to nearest integer (e.g., 99.5 → 100, 99.4 → 99)"
     },
     "VCG": {
         "decimal_places": 2,

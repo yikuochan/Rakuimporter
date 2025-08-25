@@ -63,7 +63,7 @@ class TestCompanyRoundingConfig(unittest.TestCase):
         """Test VCT company configuration."""
         config = get_company_rounding_config("VCT")
         self.assertEqual(config["decimal_places"], 0)
-        self.assertEqual(config["rounding_method"], RoundingMethod.ROUND_DOWN)
+        self.assertEqual(config["rounding_method"], RoundingMethod.ROUND_HALF_UP)
         self.assertEqual(config["home_currency"], "NTD")
         
     def test_vcg_config(self):
@@ -125,15 +125,16 @@ class TestCompanyRounding(unittest.TestCase):
                     f"VCP rounding failed: {input_amount} → {float(result)}, expected {expected}")
                 
     def test_vct_rounding_requirements(self):
-        """Test VCT rounding: round down to 0 decimals."""
-        # Test cases from requirements: 99.9 → 99
+        """Test VCT rounding: round to nearest integer."""
+        # Test cases with proper rounding to nearest integer
         test_cases = [
-            (99.9, 99),
-            (99.1, 99),
-            (100.9, 100),
-            (99.0, 99),
-            (50.5, 50),
-            (50.9, 50)
+            (99.9, 100),  # Round up
+            (99.1, 99),   # Round down
+            (100.9, 101), # Round up  
+            (99.0, 99),   # No change
+            (50.5, 51),   # Round up (half-up)
+            (50.4, 50),   # Round down
+            (50.6, 51)    # Round up
         ]
         
         for input_amount, expected in test_cases:
@@ -154,7 +155,7 @@ class TestCompanyRounding(unittest.TestCase):
         
         # Test VCT convenience function
         result = round_vct_amount(99.9)
-        self.assertEqual(float(result), 99)
+        self.assertEqual(float(result), 100)
         
     def test_decimal_input_handling(self):
         """Test that Decimal inputs are handled correctly."""
@@ -183,10 +184,10 @@ class TestCurrencyConverterIntegration(unittest.TestCase):
         self.assertTrue(success)
         self.assertEqual(float(result), 10.11)
         
-        # VCT: should round down to 0 decimals  
+        # VCT: should round to nearest integer  
         result, success = convert_amount(99.9, "NTD", "NTD", company_code="VCT")
         self.assertTrue(success)
-        self.assertEqual(float(result), 99)
+        self.assertEqual(float(result), 100)
         
     def test_fallback_to_standard_rounding(self):
         """Test fallback to standard rounding when company code is not provided."""
@@ -252,7 +253,7 @@ class TestRealWorldScenarios(unittest.TestCase):
         # Simulate VCT expense of 50,000.75 NTD
         expense_amount = 50000.75
         result = apply_company_rounding(expense_amount, "VCT")
-        expected = 50000  # Round down to 0 decimals
+        expected = 50001  # Round to nearest integer
         self.assertEqual(float(result), expected)
         
     def test_mixed_company_processing(self):
@@ -260,7 +261,7 @@ class TestRealWorldScenarios(unittest.TestCase):
         expenses = [
             ("VCA", 1234.567, 1234.56),
             ("VCP", 9876.543, 9876.54), 
-            ("VCT", 5555.9, 5555),
+            ("VCT", 5555.9, 5556),      # Round to nearest integer
             ("VCG", 777.775, 777.78),  # Standard rounding for VCG
         ]
         
@@ -286,9 +287,9 @@ class TestEdgeCases(unittest.TestCase):
         result = apply_company_rounding(-10.118, "VCA")
         self.assertEqual(float(result), -10.11)
         
-        # VCT: -99.9 should become -99
+        # VCT: -99.9 should become -100 (round to nearest)
         result = apply_company_rounding(-99.9, "VCT")
-        self.assertEqual(float(result), -99)
+        self.assertEqual(float(result), -100)
         
     def test_very_small_amounts(self):
         """Test rounding of very small amounts."""
@@ -296,9 +297,9 @@ class TestEdgeCases(unittest.TestCase):
         result = apply_company_rounding(0.001, "VCA")
         self.assertEqual(float(result), 0.00)
         
-        # VCT: 0.9 should become 0
+        # VCT: 0.9 should become 1 (round to nearest)
         result = apply_company_rounding(0.9, "VCT")
-        self.assertEqual(float(result), 0)
+        self.assertEqual(float(result), 1)
         
     def test_very_large_amounts(self):
         """Test rounding of very large amounts."""
@@ -308,9 +309,9 @@ class TestEdgeCases(unittest.TestCase):
         result = apply_company_rounding(large_amount, "VCA")
         self.assertEqual(float(result), 999999999.99)
         
-        # VCT: should round down to 0 decimals
+        # VCT: should round to nearest integer
         result = apply_company_rounding(large_amount, "VCT")
-        self.assertEqual(float(result), 999999999)
+        self.assertEqual(float(result), 1000000000)
 
 class TestRequirementsValidation(unittest.TestCase):
     """Test validation against the original business requirements."""
@@ -329,9 +330,9 @@ class TestRequirementsValidation(unittest.TestCase):
         vcp_result = apply_company_rounding(10.118, "VCP")
         self.assertEqual(float(vcp_result), 10.11)
         
-        # VCT: 99.9 to 99
+        # VCT: 99.9 to 100 (round to nearest integer)
         vct_result = apply_company_rounding(99.9, "VCT")
-        self.assertEqual(float(vct_result), 99)
+        self.assertEqual(float(vct_result), 100)
 
 def run_comprehensive_test():
     """Run all tests and provide a comprehensive report."""
