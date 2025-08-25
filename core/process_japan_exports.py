@@ -1401,30 +1401,44 @@ def process_entries(entries: List[Dict[str, Any]], access_token: str, balance_to
         is_already_consolidated = voucher_no in already_consolidated
         
         for vendor_code, group_entries in vendor_groups.items():
-            # NEW: V-VC00048 Consolidated Entry Skip Logic
-            # Check if this is a V-VC00048 consolidated entry that should be skipped
-            v_vc00048_consolidated_entries = [
-                e for e in group_entries 
-                if (e.get("credit", {}).get("consolidated") == True and 
-                    e.get("credit", {}).get("vendor_code") == "V-VC00048")
-            ]
+            # NEW: V-VC00048 Consolidated Entry Skip Logic (Issue #96)
+            # Only skip V-VC00048 consolidated entries for NON-VCT cost centers
+            # VCT cost centers should get normal consolidated billing
+            v_vc00048_consolidated_entries_to_skip = []
             
-            if v_vc00048_consolidated_entries:
-                logger.info(f"Skipping {len(v_vc00048_consolidated_entries)} V-VC00048 consolidated entries for voucher {voucher_no}")
-                for entry in v_vc00048_consolidated_entries:
+            for e in group_entries:
+                is_v_vc00048_consolidated = (
+                    e.get("credit", {}).get("consolidated") == True and 
+                    e.get("credit", {}).get("vendor_code") == "V-VC00048"
+                )
+                
+                if is_v_vc00048_consolidated:
+                    department = e.get("credit", {}).get("department", "")
+                    cost_center = department[:3] if department else ""
+                    
+                    # Only skip if cost center is NOT VCT (non-VCT entries get VCT responsibility replacement)
+                    if cost_center != "VCT":
+                        v_vc00048_consolidated_entries_to_skip.append(e)
+                        logger.info(f"Skipping V-VC00048 consolidated entry for NON-VCT cost center {cost_center} - Voucher: {voucher_no}, Amount: {e.get('credit', {}).get('amount', 0)}")
+                    else:
+                        logger.info(f"Keeping V-VC00048 consolidated entry for VCT cost center {cost_center} - Voucher: {voucher_no}, Amount: {e.get('credit', {}).get('amount', 0)}")
+            
+            if v_vc00048_consolidated_entries_to_skip:
+                logger.info(f"Skipping {len(v_vc00048_consolidated_entries_to_skip)} V-VC00048 consolidated entries for voucher {voucher_no}")
+                for entry in v_vc00048_consolidated_entries_to_skip:
                     logger.info(f"SKIPPED: V-VC00048 consolidated entry - Voucher: {entry.get('voucher_no', 'Unknown')}, "
                                f"Amount: {entry.get('credit', {}).get('amount', 0)}")
-                # Skip processing this group entirely if it only contains V-VC00048 consolidated entries
-                non_consolidated_entries = [e for e in group_entries if e not in v_vc00048_consolidated_entries]
-                if not non_consolidated_entries:
+                # Skip processing this group entirely if it only contains V-VC00048 consolidated entries to skip
+                non_skipped_entries = [e for e in group_entries if e not in v_vc00048_consolidated_entries_to_skip]
+                if not non_skipped_entries:
                     continue
-                # Update group_entries to exclude V-VC00048 consolidated entries
-                group_entries = non_consolidated_entries
+                # Update group_entries to exclude only the V-VC00048 consolidated entries that should be skipped
+                group_entries = non_skipped_entries
             
             # Find entries with valid debit information
             valid_entries = [e for e in group_entries if e["debit"] and e["debit"].get("amount")]
             
-            # Find consolidated credit entries (excluding V-VC00048 consolidated entries)
+            # Find consolidated credit entries (excluding skipped V-VC00048 consolidated entries)
             consolidated_entries = [e for e in group_entries if e["credit"].get("consolidated", False)]
             
             if not valid_entries:
