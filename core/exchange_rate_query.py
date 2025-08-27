@@ -1,4 +1,5 @@
 import logging
+from decimal import Decimal
 from utils.env_config import get_env_var
 from utils.company_currency_mapping import get_home_currency, COMPANY_HOME_CURRENCY
 
@@ -31,14 +32,14 @@ def get_exchange_rate(from_currency, to_currency, company_name=None, debug=False
     **kwargs: Additional parameters (ignored, kept for backward compatibility)
     
     Returns:
-    float: The exchange rate from source to target currency
+    Decimal: The exchange rate from source to target currency with high precision
     
     Raises:
     Exception: If the API is not available or fails to retrieve the exchange rate
     """
-    # If currencies are the same, return 1.0
+    # If currencies are the same, return 1.0 as Decimal
     if from_currency == to_currency:
-        return 1.0
+        return Decimal('1.0')
     
     # Add logging for input currencies
     logger.info(f"Exchange rate request: from_currency={from_currency}, to_currency={to_currency}")

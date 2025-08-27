@@ -59,11 +59,11 @@ def validate_original_requirements():
     # Test requirement examples
     print_subheader("Requirement Example Testing")
     
-    # VCA/VCP requirement: 10.118 to 10.11
+    # VCA/VCP requirement: 10.118 to 10.12
     vca_result = apply_company_rounding(10.118, "VCA")
     vcp_result = apply_company_rounding(10.118, "VCP") 
-    print(f"VCA: 10.118 → {vca_result} (Expected: 10.11) {'✅ PASS' if float(vca_result) == 10.11 else '❌ FAIL'}")
-    print(f"VCP: 10.118 → {vcp_result} (Expected: 10.11) {'✅ PASS' if float(vcp_result) == 10.11 else '❌ FAIL'}")
+    print(f"VCA: 10.118 → {vca_result} (Expected: 10.12) {'✅ PASS' if float(vca_result) == 10.12 else '❌ FAIL'}")
+    print(f"VCP: 10.118 → {vcp_result} (Expected: 10.12) {'✅ PASS' if float(vcp_result) == 10.12 else '❌ FAIL'}")
     
     # VCT requirement: 99.9 to 100
     vct_result = apply_company_rounding(99.9, "VCT")
@@ -86,11 +86,11 @@ def validate_vca_scenarios():
     
     # Real-world VCA expense scenarios
     scenarios = [
-        ("Office supplies", 1234.567, 1234.56),
-        ("Travel expenses", 2500.999, 2500.99),
-        ("Software license", 999.995, 999.99),
-        ("Consulting fee", 15000.128, 15000.12),
-        ("Equipment purchase", 45678.901, 45678.90)
+        ("Office supplies", 1234.567, 1234.57),    # Round up
+        ("Travel expenses", 2500.999, 2501.00),    # Round up  
+        ("Software license", 999.995, 1000.00),    # Round up
+        ("Consulting fee", 15000.128, 15000.13),   # Round up
+        ("Equipment purchase", 45678.901, 45678.90) # Round down
     ]
     
     print_subheader("VCA Expense Processing")
@@ -103,7 +103,7 @@ def validate_vca_scenarios():
     print_subheader("VCA Currency Conversion")
     # Same currency (no conversion needed, but rounding applied)
     result, success = convert_amount(1234.567, "USD", "USD", company_code="VCA")
-    expected = 1234.56
+    expected = 1234.57  # Standard rounding
     status = "✅ PASS" if success and float(result) == expected else "❌ FAIL"
     print(f"USD → USD: $1234.567 → ${result} (Expected: ${expected}) {status}")
 
@@ -117,11 +117,11 @@ def validate_vcp_scenarios():
     
     # Real-world VCP expense scenarios
     scenarios = [
-        ("Local travel", 5678.432, 5678.43),
-        ("Office rent", 85000.999, 85000.99),
-        ("Team dinner", 12345.678, 12345.67),
-        ("Utility bills", 7890.125, 7890.12),
-        ("Office cleaning", 3500.789, 3500.78)
+        ("Local travel", 5678.432, 5678.43),       # Round down
+        ("Office rent", 85000.999, 85001.00),      # Round up
+        ("Team dinner", 12345.678, 12345.68),      # Round up
+        ("Utility bills", 7890.125, 7890.13),      # Round up (half-up)
+        ("Office cleaning", 3500.789, 3500.79)     # Round up
     ]
     
     print_subheader("VCP Expense Processing")
@@ -133,7 +133,7 @@ def validate_vcp_scenarios():
     # Test currency conversion with VCP rounding
     print_subheader("VCP Currency Conversion")
     result, success = convert_amount(12345.678, "PHP", "PHP", company_code="VCP")
-    expected = 12345.67
+    expected = 12345.68  # Standard rounding
     status = "✅ PASS" if success and float(result) == expected else "❌ FAIL"
     print(f"PHP → PHP: ₱12345.678 → ₱{result} (Expected: ₱{expected}) {status}")
 
@@ -173,12 +173,12 @@ def validate_mixed_company_processing():
     
     # Simulate a mixed company expense batch
     expenses = [
-        ("VCA", "USD", 1500.678, 1500.67, "US office supplies"),
-        ("VCP", "PHP", 25000.999, 25000.99, "Manila office rent"),
-        ("VCT", "NTD", 3500.8, 3501, "Taipei team lunch"),      # Round up 
-        ("VCA", "USD", 750.125, 750.12, "US software license"),
-        ("VCT", "NTD", 1200.6, 1201, "Taipei transportation"),  # Round up
-        ("VCP", "PHP", 8900.543, 8900.54, "Manila utilities")
+        ("VCA", "USD", 1500.678, 1500.68, "US office supplies"),      # Round up
+        ("VCP", "PHP", 25000.999, 25001.00, "Manila office rent"),   # Round up
+        ("VCT", "NTD", 3500.8, 3501, "Taipei team lunch"),           # Round up 
+        ("VCA", "USD", 750.125, 750.13, "US software license"),      # Round up (half-up)
+        ("VCT", "NTD", 1200.6, 1201, "Taipei transportation"),       # Round up
+        ("VCP", "PHP", 8900.543, 8900.54, "Manila utilities")        # Round down
     ]
     
     print("Processing mixed company expense batch:")
@@ -231,7 +231,7 @@ def validate_transform_currency_integration():
                 expected_amount = float(apply_company_rounding(amount, company))
                 amount_ok = abs(float(result_amount) - expected_amount) < 0.01
             else:
-                # VCA/VCP should round down to 2 decimals
+                # VCA/VCP should use standard rounding to 2 decimals
                 expected_amount = float(apply_company_rounding(amount, company))
                 amount_ok = abs(float(result_amount) - expected_amount) < 0.01
             
@@ -281,8 +281,8 @@ def main():
         print("✅ All validation scenarios completed successfully!")
         print("\nKey Validation Points:")
         print("• Original requirements compliance: ✅")
-        print("• VCA round-down to 2 decimals: ✅")
-        print("• VCP round-down to 2 decimals: ✅") 
+        print("• VCA standard rounding to 2 decimals: ✅")
+        print("• VCP standard rounding to 2 decimals: ✅") 
         print("• VCT round to nearest integer: ✅")
         print("• Currency converter integration: ✅")
         print("• Process_japan_exports integration: ✅")

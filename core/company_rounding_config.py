@@ -6,8 +6,8 @@ This module defines rounding rules for different companies based on their
 home currencies and business requirements.
 
 Requirements:
-- VCA, VCP: Round down to 2 decimal places (e.g., 10.118 → 10.11)
-- VCT: Round down to 0 decimal places (e.g., 99.9 → 99)
+- VCA, VCP: Standard rounding to 2 decimal places (e.g., 10.118 → 10.12)
+- VCT: Round to nearest integer (e.g., 99.9 → 100)
 - Other companies: Use standard rounding rules
 """
 
@@ -27,15 +27,15 @@ class RoundingMethod(Enum):
 COMPANY_ROUNDING_RULES = {
     "VCA": {
         "decimal_places": 2,
-        "rounding_method": RoundingMethod.ROUND_DOWN,
+        "rounding_method": RoundingMethod.ROUND_HALF_UP,
         "home_currency": "USD",
-        "description": "VCA: Round down to 2 decimal places (e.g., 10.118 → 10.11)"
+        "description": "VCA: Standard rounding to 2 decimal places (e.g., 10.118 → 10.12)"
     },
     "VCP": {
         "decimal_places": 2,
-        "rounding_method": RoundingMethod.ROUND_DOWN,
+        "rounding_method": RoundingMethod.ROUND_HALF_UP,
         "home_currency": "PHP",
-        "description": "VCP: Round down to 2 decimal places (e.g., 10.118 → 10.11)"
+        "description": "VCP: Standard rounding to 2 decimal places (e.g., 10.118 → 10.12)"
     },
     "VCT": {
         "decimal_places": 0,

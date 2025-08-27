@@ -74,9 +74,8 @@ def convert_amount(amount, from_currency, to_currency, company_code=None, excel_
         from_curr = from_currency.replace('R-', '') if from_currency.startswith('R-') else from_currency
         to_curr = to_currency.replace('R-', '') if to_currency.startswith('R-') else to_currency
         
-        # Get exchange rate and convert to Decimal
-        rate = get_exchange_rate(from_curr, to_curr, company_name=company_code, **kwargs)
-        rate_decimal = Decimal(str(rate))
+        # Get exchange rate as Decimal (no conversion needed)
+        rate_decimal = get_exchange_rate(from_curr, to_curr, company_name=company_code, **kwargs)
         
         # Calculate the conversion without intermediate rounding
         raw_conversion = amount * rate_decimal
@@ -136,13 +135,11 @@ def convert_through_intermediate(amount, from_currency, intermediate_currency, t
         if excel_path:
             kwargs["file_path"] = excel_path
         
-        # Get first exchange rate (from_currency to intermediate_currency)
-        rate1 = get_exchange_rate(from_currency, intermediate_currency, company_name=company_code, **kwargs)
-        rate1_decimal = Decimal(str(rate1))
+        # Get first exchange rate as Decimal (no conversion needed)
+        rate1_decimal = get_exchange_rate(from_currency, intermediate_currency, company_name=company_code, **kwargs)
         
-        # Get second exchange rate (intermediate_currency to to_currency)
-        rate2 = get_exchange_rate(intermediate_currency, to_currency, company_name=company_code, **kwargs)
-        rate2_decimal = Decimal(str(rate2))
+        # Get second exchange rate as Decimal (no conversion needed)
+        rate2_decimal = get_exchange_rate(intermediate_currency, to_currency, company_name=company_code, **kwargs)
         
         # Calculate the conversion without intermediate rounding
         raw_conversion = amount * rate1_decimal * rate2_decimal

@@ -8,9 +8,13 @@ It handles authentication, API calls, and rate calculations between different cu
 import logging
 import requests
 from datetime import datetime
+from decimal import Decimal, getcontext
 from utils.oauth_token_helper import OAuthTokenHelper
 from utils.config import config
 from utils.company_currency_mapping import get_home_currency, normalize_currency_code, get_all_currency_variants, COMPANY_HOME_CURRENCY
+
+# Set high precision for financial calculations
+getcontext().prec = 28
 
 # Configure logging
 logger = logging.getLogger("erp_api_integration")
@@ -171,6 +175,7 @@ class ExchangeRateAPI:
     def _calculate_rate(self, from_rate, to_rate=None):
         """
         Calculate exchange rate between currencies based on their rates to the home currency.
+        Uses Decimal for precise financial calculations.
         
         Args:
             from_rate (dict): Exchange rate record for source currency
@@ -178,11 +183,11 @@ class ExchangeRateAPI:
                                      If None, target is assumed to be home currency
             
         Returns:
-            float: Calculated exchange rate
+            Decimal: Calculated exchange rate with high precision
         """
-        # Extract values from source rate
-        from_amount = float(from_rate.get("Exchange_Rate_Amount", 1))
-        from_value = float(from_rate.get("Relational_Exch_Rate_Amount", 0))
+        # Extract values from source rate using Decimal for precision
+        from_amount = Decimal(str(from_rate.get("Exchange_Rate_Amount", 1)))
+        from_value = Decimal(str(from_rate.get("Relational_Exch_Rate_Amount", 0)))
         
         # If target is home currency, conversion is straightforward
         if to_rate is None:
@@ -190,9 +195,9 @@ class ExchangeRateAPI:
             # For example, if 100 USD = 3233 NTD, then 1 USD = 32.33 NTD
             return from_value / from_amount
         
-        # Extract values from target rate
-        to_amount = float(to_rate.get("Exchange_Rate_Amount", 1))
-        to_value = float(to_rate.get("Relational_Exch_Rate_Amount", 0))
+        # Extract values from target rate using Decimal for precision
+        to_amount = Decimal(str(to_rate.get("Exchange_Rate_Amount", 1)))
+        to_value = Decimal(str(to_rate.get("Relational_Exch_Rate_Amount", 0)))
         
         # Calculate cross rate
         # If 100 USD = 3233 NTD and 100 EUR = 3500 NTD
@@ -214,16 +219,16 @@ class ExchangeRateAPI:
             use_month_start (bool, optional): If True, use the first day of the month for the date filter
         
         Returns:
-            float: Exchange rate from source to target currency
+            Decimal: Exchange rate from source to target currency with high precision
         
         Raises:
             ValueError: If exchange rate cannot be found
             Exception: For other errors
         """
         try:
-            # If currencies are the same, return 1.0
+            # If currencies are the same, return 1.0 as Decimal
             if normalize_currency_code(from_currency) == normalize_currency_code(to_currency):
-                return 1.0
+                return Decimal('1.0')
             
             # Set default date to today if not provided
             if date is None:
@@ -266,7 +271,7 @@ class ExchangeRateAPI:
                 to_rate = self._find_rate(rates, to_currency)
                 if to_rate:
                     # Invert the rate
-                    return 1.0 / self._calculate_rate(to_rate)
+                    return Decimal('1.0') / self._calculate_rate(to_rate)
             
             # Case 3: Cross-conversion between two foreign currencies
             from_rate = self._find_rate(rates, from_currency)

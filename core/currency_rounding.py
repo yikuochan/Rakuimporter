@@ -78,33 +78,33 @@ def apply_company_rounding(amount: Union[float, Decimal],
 
 def round_vca_amount(amount: Union[float, Decimal]) -> Decimal:
     """
-    Apply VCA-specific rounding (round down to 2 decimal places).
+    Apply VCA-specific rounding (standard rounding to 2 decimal places).
     
     Args:
         amount: Amount to round
         
     Returns:
-        Decimal: Amount rounded down to 2 decimal places
+        Decimal: Amount rounded to 2 decimal places using standard rounding
         
     Example:
         >>> round_vca_amount(10.118)
-        Decimal('10.11')
+        Decimal('10.12')
     """
     return apply_company_rounding(amount, "VCA")
 
 def round_vcp_amount(amount: Union[float, Decimal]) -> Decimal:
     """
-    Apply VCP-specific rounding (round down to 2 decimal places).
+    Apply VCP-specific rounding (standard rounding to 2 decimal places).
     
     Args:
         amount: Amount to round
         
     Returns:
-        Decimal: Amount rounded down to 2 decimal places
+        Decimal: Amount rounded to 2 decimal places using standard rounding
         
     Example:
-        >>> round_vcp_amount(10.118)
-        Decimal('10.11')
+        >>> round_vcp_amount(5.678)
+        Decimal('5.68')
     """
     return apply_company_rounding(amount, "VCP")
 
@@ -139,18 +139,18 @@ def get_rounding_examples(company_code: str) -> list:
     if company_code.upper() == "VCA":
         return [
             {"input": 10.118, "output": float(apply_company_rounding(10.118, "VCA")), 
-             "description": "10.118 → 10.11 (round down to 2 decimals)"},
+             "description": "10.118 → 10.12 (standard rounding to 2 decimals)"},
             {"input": 10.119, "output": float(apply_company_rounding(10.119, "VCA")), 
-             "description": "10.119 → 10.11 (round down to 2 decimals)"},
+             "description": "10.119 → 10.12 (standard rounding to 2 decimals)"},
             {"input": 10.115, "output": float(apply_company_rounding(10.115, "VCA")), 
-             "description": "10.115 → 10.11 (round down to 2 decimals)"}
+             "description": "10.115 → 10.12 (standard rounding to 2 decimals)"}
         ]
     elif company_code.upper() == "VCP":
         return [
             {"input": 5.678, "output": float(apply_company_rounding(5.678, "VCP")), 
-             "description": "5.678 → 5.67 (round down to 2 decimals)"},
+             "description": "5.678 → 5.68 (standard rounding to 2 decimals)"},
             {"input": 5.679, "output": float(apply_company_rounding(5.679, "VCP")), 
-             "description": "5.679 → 5.67 (round down to 2 decimals)"}
+             "description": "5.679 → 5.68 (standard rounding to 2 decimals)"}
         ]
     elif company_code.upper() == "VCT":
         return [
@@ -179,12 +179,12 @@ def validate_rounding_requirements():
     validation_report = []
     is_valid = True
     
-    # Test VCA requirements: Round down to 2 decimals
+    # Test VCA requirements: Standard rounding to 2 decimals
     test_cases_vca = [
-        (10.118, 10.11),
-        (10.119, 10.11),
-        (10.115, 10.11),
-        (10.111, 10.11)
+        (10.118, 10.12),  # Round up 
+        (10.119, 10.12),  # Round up
+        (10.115, 10.12),  # Round up (half-up)
+        (10.111, 10.11)   # Round down
     ]
     
     for input_val, expected in test_cases_vca:
@@ -195,11 +195,11 @@ def validate_rounding_requirements():
         else:
             validation_report.append(f"VCA PASS: {input_val} → {result}")
     
-    # Test VCP requirements: Round down to 2 decimals  
+    # Test VCP requirements: Standard rounding to 2 decimals  
     test_cases_vcp = [
-        (5.678, 5.67),
-        (5.679, 5.67),
-        (5.675, 5.67)
+        (5.678, 5.68),   # Round up
+        (5.679, 5.68),   # Round down
+        (5.675, 5.68)    # Round up (half-up)
     ]
     
     for input_val, expected in test_cases_vcp:
