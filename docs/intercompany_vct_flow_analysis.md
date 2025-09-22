@@ -5,7 +5,7 @@
 
 This document traces the complete end-to-end process showing how intercompany code handling flows from raw CSV input through JSON conversion to Business Central API calls, specifically tracking how **"ShortcutDimCode3" gets set to "VCT"**.
 
-**Key Finding**: The ShortcutDimCode3 field gets set to "VCT" in **normal journal credit lines** when processing transactions with non-VCT cost centers. This is different from VCT responsibility entries where ShortcutDimCode3 contains the original cost center code.
+**Key Finding**: The ShortcutDimCode3 field gets set to "VCT" **only for V-VC00048 vendor** with non-VCT cost centers in normal journal credit lines. Other vendors get empty ShortcutDimCode3 regardless of cost center. This is the corrected behavior after fixing the overly broad vendor logic.
 
 ---
 
@@ -105,7 +105,7 @@ if original_dept_code and len(original_dept_code) >= 3:
 
 **File Reference**: `/core/process_japan_exports.py:710-733`
 
-### Critical Logic for ShortcutDimCode3 = "VCT"
+### Critical Logic for ShortcutDimCode3 = "VCT" (CORRECTED)
 
 ```python
 # Determine intercompany code for ShortcutDimCode3
@@ -117,36 +117,42 @@ if entry_type == "debit" and account_no == "18600-10":
     department = entry_data.get("department", "")
     intercompany_code = department[:3] if department else ""
 
-# For credit lines, check if cost center is not VCT
+# For credit lines, check vendor-specific rules
 elif entry_type == "credit":
-    # Get vendor code
     vendor_code = entry_data.get("vendor_code", "")
 
     # Extract cost center from department code (first 3 characters)
     department = entry_data.get("department", "")
     cost_center = department[:3] if department else ""
 
-    # If cost center is not VCT, set intercompany code to "VCT"
-    if cost_center and cost_center != "VCT":
+    # Only apply VCT intercompany logic to V-VC00048
+    if vendor_code == "V-VC00048" and cost_center and cost_center != "VCT":
         intercompany_code = "VCT"
+        logger.info(f"Setting intercompany code to VCT for V-VC00048 with non-VCT cost center {cost_center}")
+    # All other vendors get empty intercompany code
+    else:
+        intercompany_code = ""
 ```
 
-### **Why Log Shows ShortcutDimCode3 = "VCT"**
+### **Why Log Shows ShortcutDimCode3 = "VCT" (CORRECTED ANALYSIS)**
 
-The log entries showing `"ShortcutDimCode3": "VCT"` are from **normal journal credit lines**, not VCT responsibility entries.
+The log entries showing `"ShortcutDimCode3": "VCT"` are from **V-VC00048 vendor credit lines with non-VCT cost centers**.
 
-**Logic**:
-1. **Normal Credit Lines**: When department = "VCP.1234" (cost_center = "VCP" ≠ "VCT") → ShortcutDimCode3 = "VCT"
-2. **VCT Responsibility Lines**: ShortcutDimCode3 = original cost center ("VCP")
+**CORRECTED Logic**:
+1. **V-VC00048 Credit Lines with non-VCT cost center**: When department = "VCP.1234" (cost_center = "VCP" ≠ "VCT") → ShortcutDimCode3 = "VCT"
+2. **V-VC00048 Credit Lines with VCT cost center**: When department = "VCT.1234" → ShortcutDimCode3 = ""
+3. **Other Vendor Credit Lines**: Any cost center → ShortcutDimCode3 = "" (empty)
 
-### Two Different Assignment Paths
+### Corrected Assignment Paths
 
-| Line Type | Condition | ShortcutDimCode3 Value | Purpose |
-|-----------|-----------|----------------------|---------|
-| Normal Credit | Cost center ≠ VCT | "VCT" | Intercompany tracking |
-| Normal Debit | Account = 18600-10 | Original cost center | Cost center tracking |
-| VCT Responsibility Debit | VCT entry creation | Original cost center | Responsibility tracking |
-| VCT Responsibility Credit | VCT entry creation | "" (empty) | Credit line |
+| Line Type | Vendor | Cost Center | ShortcutDimCode3 Value | Purpose |
+|-----------|---------|-------------|----------------------|---------|
+| Normal Credit | V-VC00048 | Non-VCT (VCP, VSL, etc.) | "VCT" | Intercompany tracking |
+| Normal Credit | V-VC00048 | VCT | "" (empty) | No intercompany needed |
+| Normal Credit | Other vendors | Any | "" (empty) | No intercompany logic |
+| Normal Debit | Any | Account = 18600-10 | Original cost center | Cost center tracking |
+| VCT Responsibility Debit | VCT entry creation | Any | Original cost center | Responsibility tracking |
+| VCT Responsibility Credit | VCT entry creation | Any | "" (empty) | Credit line |
 
 ---
 
