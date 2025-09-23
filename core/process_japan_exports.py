@@ -151,10 +151,10 @@ API_URL = get_env_var(
     "ERP_API_URL", 
     default=f"https://api.businesscentral.dynamics.com/v2.0/6b83c27c-aa6d-475a-9933-5c34bb008d73/{BC_ENVIRONMENT}/ODataV4/Company('VCT')/PurchaseJournals"
 )
-CLIENT_ID = get_env_var("ERP_CLIENT_ID", required=True)
-CLIENT_SECRET = get_env_var("ERP_CLIENT_SECRET", required=True)
+CLIENT_ID = get_env_var("BC_CLIENT_ID", required=True)
+CLIENT_SECRET = get_env_var("BC_CLIENT_SECRET", required=True)
 SCOPE = get_env_var(
-    "ERP_SCOPE", 
+    "BC_SCOPE", 
     default="https://api.businesscentral.dynamics.com/.default"
 )
 
@@ -726,10 +726,10 @@ def create_journal_line(entry: Dict[str, Any], entry_type: str) -> Dict[str, Any
         department = entry_data.get("department", "")
         cost_center = department[:3] if department else ""
         
-        # If cost center is not VCT, set intercompany code to "VCT"
-        if cost_center and cost_center != "VCT":
+        # Only set intercompany code to "VCT" for V-VC00048 vendor with non-VCT cost center
+        if vendor_code == "V-VC00048" and cost_center and cost_center != "VCT":
             intercompany_code = "VCT"
-            logger.info(f"Setting intercompany code to VCT for credit line - Vendor: {vendor_code}, Cost center: {cost_center} - Voucher: {entry.get('voucher_no', 'Unknown')}")
+            logger.info(f"Setting intercompany code to VCT for V-VC00048 credit line with non-VCT cost center {cost_center} - Voucher: {entry.get('voucher_no', 'Unknown')}")
 
     # Create the journal line payload
     journal_line = {

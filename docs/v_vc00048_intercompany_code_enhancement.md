@@ -6,7 +6,10 @@ When processing credit lines in regular journal entries, the intercompany code (
 
 According to the business rules, the intercompany code should be:
 1. Empty for any vendor with VCT cost center (including V-VC00048)
-2. "VCT" for any vendor with non-VCT cost center (including V-VC00048)
+2. "VCT" for V-VC00048 vendor with non-VCT cost center (specific to V-VC00048 only)
+3. Empty for all other vendors regardless of cost center (corrected from previous broad application)
+
+**IMPORTANT**: The intercompany code logic should only apply to V-VC00048 vendor specifically, not to all vendors with non-VCT cost centers as was previously implemented.
 
 This issue affected both regular and consolidated journal entries, as they both use the same `create_journal_line` function.
 
@@ -25,38 +28,45 @@ elif entry_type == "credit":
         logger.info(f"Setting intercompany code to VCT for credit line with cost center {cost_center} - Voucher: {entry.get('voucher_no', 'Unknown')}")
 ```
 
-## Enhanced Implementation
+## Enhanced Implementation (CORRECTED)
 
-The code has been updated to maintain the original logic, which only sets the intercompany code to "VCT" when the cost center is not "VCT", regardless of the vendor code:
+The code has been updated to be vendor-specific, applying the intercompany logic only to V-VC00048:
 
 ```python
-# For credit lines, check if cost center is not VCT
+# For credit lines, check vendor-specific rules
 elif entry_type == "credit":
     # Get vendor code
     vendor_code = entry_data.get("vendor_code", "")
-    
+
     # Extract cost center from department code (first 3 characters)
     department = entry_data.get("department", "")
     cost_center = department[:3] if department else ""
-    
-    # If cost center is not VCT, set intercompany code to "VCT"
-    if cost_center and cost_center != "VCT":
+
+    # Only apply VCT intercompany logic to V-VC00048
+    if vendor_code == "V-VC00048" and cost_center and cost_center != "VCT":
         intercompany_code = "VCT"
-        logger.info(f"Setting intercompany code to VCT for credit line - Vendor: {vendor_code}, Cost center: {cost_center} - Voucher: {entry.get('voucher_no', 'Unknown')}")
+        logger.info(f"Setting intercompany code to VCT for V-VC00048 with non-VCT cost center {cost_center}")
+    # All other vendors get empty intercompany code
+    else:
+        intercompany_code = ""
 ```
 
-## Benefits
+## Benefits (CORRECTED)
 
-1. For V-VC00048 vendor credit lines with VCT cost center, the intercompany code is now correctly set to empty.
-2. For V-VC00048 vendor credit lines with non-VCT cost center, the intercompany code is still set to "VCT".
-3. For other vendors, the existing logic is maintained (set to "VCT" only if cost center is not "VCT").
-4. The same logic applies to consolidated entries since they use the same function.
+1. For V-VC00048 vendor credit lines with VCT cost center, the intercompany code is correctly set to empty.
+2. For V-VC00048 vendor credit lines with non-VCT cost center, the intercompany code is set to "VCT".
+3. For all other vendors, the intercompany code is now correctly set to empty (regardless of cost center).
+4. This fixes the previous broad application of VCT intercompany codes to all vendors.
+5. The same logic applies to consolidated entries since they use the same function.
 
-## Impact
+## Impact (CORRECTED)
 
-This change ensures that all vendor credit lines (including V-VC00048) follow the correct intercompany code rules:
-- Empty intercompany code for VCT cost center
-- "VCT" intercompany code for non-VCT cost center
+This change ensures that vendor credit lines follow the correct vendor-specific intercompany code rules:
+- V-VC00048 with VCT cost center → Empty intercompany code
+- V-VC00048 with non-VCT cost center → "VCT" intercompany code
+- All other vendors → Empty intercompany code (regardless of cost center)
+
+This significantly reduces the number of transactions with intercompany codes, as the previous implementation incorrectly applied "VCT" to all vendors with non-VCT cost centers.
 
 This is required for proper accounting in the Business Central system and prevents errors like the one shown in the BC payload log:
 
